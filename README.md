@@ -1,6 +1,8 @@
 # Wasteland Trader
 
-Express.js backend for a single-player, turn-based trading game inspired by Dope Wars / Drug Lord 2.
+Express.js backend for a single-player, turn-based post-apocalyptic trading game.
+
+Disclaimer: this is an experimental, fast-iteration project focused AI experimentation. Expect rough edges.
 
 Roadmap: see `ROADMAP.md` for phased feature planning and status.
 
