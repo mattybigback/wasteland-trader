@@ -1,0 +1,25 @@
+{
+  "name": "wasteland-trader",
+  "version": "0.1.0",
+  "description": "Single-player turn-based trading game backend",
+  "private": true,
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon --watch src --ext js,json --signal SIGTERM src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test",
+    "test:phase1": "node --test test/phase1*.test.js",
+    "test:phase2": "node --test test/phase2*.test.js",
+    "test:future": "node --test test/phase3-future.test.js test/phase4-future.test.js test/phase5-future.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10",
+    "supertest": "^7.1.1"
+  }
+}
