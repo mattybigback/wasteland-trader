@@ -12,6 +12,18 @@ Run tests:
 npm test
 ```
 
+Run tests with gameplay logs enabled:
+
+```bash
+GAMEPLAY_LOGS=1 npm test
+```
+
+For Docker-based runs:
+
+```bash
+docker compose exec -e GAMEPLAY_LOGS=1 app npm test
+```
+
 Run phase-specific suites:
 
 ```bash
@@ -23,7 +35,8 @@ npm run test:future
 Test files are organized by phase:
 - `test/phase1.test.js` and `test/phase1-negative.test.js`
 - `test/phase2.test.js` and `test/phase2-negative.test.js`
-- `test/phase3-future.test.js`, `test/phase4-future.test.js`, and `test/phase5-future.test.js` (todo scaffolds)
+- `test/phase3-future.test.js` (implemented Phase 3 integration coverage)
+- `test/phase4-future.test.js` and `test/phase5-future.test.js` (todo scaffolds)
 
 ## Dockerized development
 
@@ -70,27 +83,48 @@ curl http://localhost:3000/
 ## Current API
 
 - `GET /health` -> `{ "status": "ok" }`
-- `GET /` -> service metadata response
+- `GET /` -> service metadata response: `{ "name": "wasteland-trader", "message": "Wasteland Trader API is online." }`
 - `POST /games` -> create a game session and persist it to `data/games/<uuid>.json`
 - `GET /games/:id` -> load a game session by UUID
 - `PATCH /games/:id` -> apply partial updates to a game session
-- `POST /games/:id/actions/sleep` -> stay overnight, heal 5%, advance day
-- `POST /games/:id/actions/travel` -> travel to a settlement and advance day
+- `POST /games/:id/actions/sleep` -> stay overnight, heal 5%, advance day, and return newly triggered random events in `events`
+	- Response shape: full game object plus `events: []`
+- `POST /games/:id/actions/travel` -> travel to a settlement, advance day, and return newly triggered random events in `events`
+	- Response shape: full game object plus `events: []`
 - `POST /games/:id/actions/heal` -> pay 200 caps per 10% health restored
+	- Response shape: updated game object
+- `GET /games/:id/events` -> list persisted random events
+	- Response shape: `{ total, items }`
+	- Retention: unbounded (events are not truncated)
+	- Optional filters: `?day=2`, `?settlement=Vault_Refuge`, `?limit=10`
 - `GET /games/:id/market` -> list commodity prices (defaults to current settlement)
+	- Response shape: `{ currentLocation, location, commodities: [{ itemName, unitPrice }] }`
 	- Optional filter: `GET /games/:id/market?settlement=Vault_Refuge`
+- `GET /games/:id/market-history` -> list historical prices per day, settlement, and commodity
+	- Response shape: `{ total, items }` where each item includes `day`, `settlement`, `itemName`, `unitPrice`, `previousPrice`, `delta`, `direction`
+	- Default response window: last 10 entries
+	- Optional filters: `?settlement=market_district`, `?itemName=water`, `?fromDay=10`, `?toDay=20`, `?limit=30`
+	- Day-window guard: requests over 120 days are rejected
 - `GET /games/:id/hideout` -> view stash contents (defaults to current settlement)
+	- Response shape: `{ currentLocation, location, items }`
 	- Optional filter: `GET /games/:id/hideout?settlement=Market District`
 - `GET /games/:id/hideouts` -> view stash contents across all settlements
+	- Response shape without filter: `{ currentLocation, bySettlement }`
+	- Response shape with `settlement` filter: `{ currentLocation, settlement, items }`
 	- Optional filter: `GET /games/:id/hideouts?settlement=market-district`
 - `POST /games/:id/actions/buy-item` -> buy commodity units into inventory
+	- Response shape: `{ game, trade }`
 - `POST /games/:id/actions/sell-item` -> sell commodity units from inventory
+	- Response shape: `{ game, trade }`
 - `POST /games/:id/actions/dump-item` -> discard commodity units from inventory without earning caps
+	- Response shape: `{ game, trade }`
 - `POST /games/:id/actions/stash-item` -> move commodity units from inventory into current settlement hideout
+	- Response shape: `{ game, transfer }`
 - `POST /games/:id/actions/retrieve-item` -> move commodity units from current settlement hideout into inventory
+	- Response shape: `{ game, transfer }`
 - `POST /games/:id/debt` -> unified debt endpoint with mode:
-	- `{ "mode": "quote", "amount": 500 }` previews principal, early fee, and total repayment cost
-	- `{ "mode": "pay", "amount": 500 }` applies repayment and persists game state
+	- `{ "mode": "quote", "amount": 500 }` returns a quote object with principal, early fee, total cost, and projected balances
+	- `{ "mode": "pay", "amount": 500 }` returns `{ game, repayment }`
 
 ## Temporary storage model
 
@@ -117,7 +151,7 @@ curl http://localhost:3000/
 	- Warning 3: lose 40% health
 	- Warning 4+: death
 	- Armor does not reduce debt-collector damage
-	- Debt can be repaid at any time via `pay-debt`
+	- Debt can be repaid at any time via `POST /games/:id/debt` with `{ "mode": "pay" }`
 	- If repaid before due day, an early repayment fee is charged:
 	  - Fee = 80% of projected interest for remaining days until due day
 - Game length and scoring:
@@ -153,3 +187,24 @@ curl http://localhost:3000/
 	- You can only stash/retrieve at your current settlement
 	- Retrieved items still respect carry-capacity limits
 	- Settlement inputs support alias formats such as `market-district`, `market_district`, or `Market District`
+
+## Configuration
+
+Tunable game constants are centralized in model config files:
+
+### API Limits ([src/models/apiLimits.js](src/models/apiLimits.js))
+- `MARKET_HISTORY.defaultReturnLimit`: 10 (number of entries returned by default in market-history queries)
+- `MARKET_HISTORY.maxDayWindow`: 120 (maximum day range allowed in market-history fromDay/toDay queries)
+
+### World Events and Economy ([src/models/worldEvents.js](src/models/worldEvents.js))
+- `EVENT_PROBABILITIES`: rates for luckyFind, scavengedCache, illness, shakedown, marketRiseSignal, marketDropSignal, weaponDamage, ammoStash, friendlyEncounter, rivalEncounter, nighttimeRobbery, pickpocket, settlementUnrest, supplyShortage
+- `EVENT_SEVERITY_RANGES`: tuning ranges for robbery percentages, settlement unrest shifts, and supply-shortage multipliers
+- `EVENT_REWARD_RANGES`: tuning ranges for ammo stash and friendly encounter loot quantities
+- `RUMOR_RELIABILITY`: rumor accuracy scaling from rank 1 to rank 5 (40% to 90%)
+- `MARKET_MULTIPLIER_RANGES`: price multiplier min/max/fuzz ranges for scarcity and abundance conditions
+
+### Gameplay Settings ([src/models/economy.js](src/models/economy.js))
+- `RANK_THRESHOLDS`: caps required per rank tier
+- `CARRY_CAPACITY_BY_RANK`: inventory unit capacity per rank
+- `COMMODITY_BASE_PRICES`: base unit price per commodity type
+- `SETTLEMENT_PRICE_MULTIPLIER`: price variance factor per settlement

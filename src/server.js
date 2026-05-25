@@ -83,7 +83,10 @@ app.post('/games/:id/actions/sleep', async (req, res, next) => {
       return res.status(400).json({ error: result.message });
     }
 
-    return res.status(200).json(result.game);
+    return res.status(200).json({
+      ...result.game,
+      events: result.events || []
+    });
   } catch (error) {
     return next(error);
   }
@@ -108,7 +111,32 @@ app.post('/games/:id/actions/travel', async (req, res, next) => {
       return res.status(400).json({ error: result.message });
     }
 
-    return res.status(200).json(result.game);
+    return res.status(200).json({
+      ...result.game,
+      events: result.events || []
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get('/games/:id/events', async (req, res, next) => {
+  try {
+    const result = await gameService.getEventLog(req.params.id, {
+      day: req.query?.day,
+      settlement: req.query?.settlement,
+      limit: req.query?.limit
+    });
+
+    if (result.error === 'not-found') {
+      return res.status(404).json({ error: 'Game session not found.' });
+    }
+
+    if (result.error === 'bad-request') {
+      return res.status(400).json({ error: result.message });
+    }
+
+    return res.status(200).json(result.events);
   } catch (error) {
     return next(error);
   }
@@ -155,6 +183,30 @@ app.get('/games/:id/market', async (req, res, next) => {
     }
 
     return res.status(200).json(result.market);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get('/games/:id/market-history', async (req, res, next) => {
+  try {
+    const result = await gameService.getMarketPriceHistory(req.params.id, {
+      settlement: req.query?.settlement,
+      itemName: req.query?.itemName,
+      limit: req.query?.limit,
+      fromDay: req.query?.fromDay,
+      toDay: req.query?.toDay
+    });
+
+    if (result.error === 'not-found') {
+      return res.status(404).json({ error: 'Game session not found.' });
+    }
+
+    if (result.error === 'bad-request') {
+      return res.status(400).json({ error: result.message });
+    }
+
+    return res.status(200).json(result.marketHistory);
   } catch (error) {
     return next(error);
   }
