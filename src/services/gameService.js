@@ -32,6 +32,8 @@ const SETTLEMENTS = [
 ];
 
 const EVENT_COMMODITY_NAMES = ['water', 'food', 'chems', 'scrap', 'ammo'];
+const CURRENT_SCHEMA_VERSION = 2;
+const MAX_SAFE_GAME_NUMBER = Number.MAX_SAFE_INTEGER;
 
 let randomNumberGenerator = Math.random;
 let gameplayLoggingEnabled = parseBooleanFlag(process.env.GAMEPLAY_LOGS);
@@ -89,6 +91,30 @@ function validateUpdatePayload(payload) {
 
 function roundCaps(value) {
   return Math.round(value);
+}
+
+function isFiniteNonNegativeNumber(value) {
+  return Number.isFinite(value) && value >= 0;
+}
+
+function wouldOverflowMultiplication(a, b) {
+  if (!isFiniteNonNegativeNumber(a) || !isFiniteNonNegativeNumber(b)) {
+    return true;
+  }
+
+  if (a === 0 || b === 0) {
+    return false;
+  }
+
+  return a > (MAX_SAFE_GAME_NUMBER / b);
+}
+
+function wouldOverflowAddition(a, b) {
+  if (!isFiniteNonNegativeNumber(a) || !isFiniteNonNegativeNumber(b)) {
+    return true;
+  }
+
+  return a > (MAX_SAFE_GAME_NUMBER - b);
 }
 
 function getMaxPlayableDays(game) {
@@ -160,6 +186,71 @@ function ensureEventFields(game) {
   }
 }
 
+function normalizeMarketAvailabilityMap(game) {
+  if (!game.marketAvailability || typeof game.marketAvailability !== 'object' || Array.isArray(game.marketAvailability)) {
+    game.marketAvailability = {};
+    return;
+  }
+
+  const normalized = {};
+
+  for (const [settlementInput, entry] of Object.entries(game.marketAvailability)) {
+    const settlement = resolveSettlement(settlementInput);
+
+    if (!settlement || !entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      continue;
+    }
+
+    const day = Number(entry.day);
+    const items = Array.isArray(entry.items)
+      ? entry.items
+          .map((item) => String(item || '').trim().toLowerCase())
+          .filter((itemName) => Object.prototype.hasOwnProperty.call(COMMODITY_BASE_PRICES, itemName))
+      : [];
+
+    normalized[settlement] = {
+      day: Number.isInteger(day) && day > 0 ? day : Number(game.day || 1),
+      items: [...new Set(items)]
+    };
+  }
+
+  game.marketAvailability = normalized;
+}
+
+function migrateGameSchema(game) {
+  const parsedVersion = Number(game.schemaVersion);
+  let version = Number.isInteger(parsedVersion) && parsedVersion > 0 ? parsedVersion : 1;
+  let migrated = false;
+
+  if (!version || version < CURRENT_SCHEMA_VERSION) {
+    if (version < 2) {
+      const normalizedLocation = resolveSettlement(game.location);
+
+      if (normalizedLocation && normalizedLocation !== game.location) {
+        game.location = normalizedLocation;
+        migrated = true;
+      }
+
+      const previousAvailability = JSON.stringify(game.marketAvailability || {});
+      normalizeMarketAvailabilityMap(game);
+
+      if (JSON.stringify(game.marketAvailability || {}) !== previousAvailability) {
+        migrated = true;
+      }
+    }
+
+    version = CURRENT_SCHEMA_VERSION;
+    migrated = true;
+  }
+
+  if (game.schemaVersion !== version) {
+    game.schemaVersion = version;
+    migrated = true;
+  }
+
+  return migrated;
+}
+
 function ensureCombatFields(game) {
   if (typeof game.equippedWeapon !== 'string' || game.equippedWeapon.trim().length === 0) {
     game.equippedWeapon = null;
@@ -222,16 +313,27 @@ function ensureCombatFields(game) {
 }
 
 function normalizeGameState(game) {
+  const migrated = migrateGameSchema(game);
+
   ensureRankBonusFields(game);
   ensureRankProgressFields(game);
   ensureInventoryFields(game);
   ensureHideoutFields(game);
   ensureEventFields(game);
   ensureCombatFields(game);
+  normalizeMarketAvailabilityMap(game);
+  pruneExpiredMarketConditions(game);
 
   game.rank = Number(game.rank || 0);
   game.highestRankAchieved = Math.max(Number(game.highestRankAchieved || 0), game.rank);
   game.carryCapacity = getCarryCapacity(game.rank);
+
+  if (Number(game.schemaVersion || 0) !== CURRENT_SCHEMA_VERSION) {
+    game.schemaVersion = CURRENT_SCHEMA_VERSION;
+    return true;
+  }
+
+  return migrated;
 }
 
 function isRivalBlockedAtSettlement(game, settlement) {
@@ -1512,7 +1614,11 @@ async function loadActiveGame(gameId) {
     return { error: 'not-found' };
   }
 
-  normalizeGameState(game);
+  const migrated = normalizeGameState(game);
+
+  if (migrated) {
+    await saveGame(game);
+  }
 
   if (game.status === 'ended') {
     return { error: 'game-ended', game };
@@ -2024,6 +2130,11 @@ async function sellGear(gameId, itemType, name) {
   }
 
   const sellValue = Number(gearDefinition.sellValue || 0);
+
+  if (wouldOverflowAddition(Number(game.cash || 0), sellValue)) {
+    return { error: 'bad-request', message: 'Transaction would exceed cash limit.' };
+  }
+
   game.cash = Number(game.cash || 0) + sellValue;
 
   await saveGame(game);
@@ -2046,7 +2157,11 @@ async function getEventLog(gameId, options = {}) {
     return { error: 'not-found' };
   }
 
-  normalizeGameState(game);
+  const migrated = normalizeGameState(game);
+
+  if (migrated) {
+    await saveGame(game);
+  }
 
   const queryDay = options.day;
   const settlementInput = String(options.settlement || '').trim();
@@ -2099,7 +2214,11 @@ async function getMarketPriceHistory(gameId, options = {}) {
     return { error: 'not-found' };
   }
 
-  normalizeGameState(game);
+  const migrated = normalizeGameState(game);
+
+  if (migrated) {
+    await saveGame(game);
+  }
 
   if (game.marketPriceHistory.length === 0) {
     snapshotMarketPricesForCurrentDay(game);
@@ -2414,6 +2533,10 @@ async function buyItem(gameId, itemName, quantity) {
     return { error: 'bad-request', message: 'Item not available at this location today.' };
   }
 
+  if (wouldOverflowMultiplication(unitPrice, requestedQuantity)) {
+    return { error: 'bad-request', message: 'Transaction size is too large.' };
+  }
+
   const currentUnits = getInventoryItemUnits(game);
   const capacity = Number(game.carryCapacity || getCarryCapacity(game.rank));
 
@@ -2524,7 +2647,16 @@ async function sellItem(gameId, itemName, quantity) {
     return { error: 'bad-request', message: 'Item not available at this location today.' };
   }
 
+  if (wouldOverflowMultiplication(unitPrice, requestedQuantity)) {
+    return { error: 'bad-request', message: 'Transaction size is too large.' };
+  }
+
   const totalRevenue = unitPrice * requestedQuantity;
+
+  if (wouldOverflowAddition(Number(game.cash || 0), totalRevenue)) {
+    return { error: 'bad-request', message: 'Transaction would exceed cash limit.' };
+  }
+
   inventoryItem.quantity -= requestedQuantity;
 
   if (inventoryItem.quantity <= 0) {

@@ -32,12 +32,18 @@ npm run test:phase2
 npm run test:future
 ```
 
+Run Phase 5 suites directly:
+
+```bash
+docker compose exec app node --test test/phase5-future.test.js test/phase5-negative.test.js
+```
+
 Test files are organized by phase:
 - `test/phase1.test.js` and `test/phase1-negative.test.js`
 - `test/phase2.test.js` and `test/phase2-negative.test.js`
 - `test/phase3-future.test.js` and `test/phase3-negative.test.js` (implemented Phase 3 coverage)
 - `test/phase4-future.test.js` and `test/phase4-negative.test.js` (implemented Phase 4 coverage)
-- `test/phase5-future.test.js` (todo scaffold)
+- `test/phase5-future.test.js` and `test/phase5-negative.test.js` (implemented Phase 5 foundation/hardening/determinism coverage for migration, long-run seeded simulation stability, balance-boundary assertions, error-contract shape checks, and overflow guardrails)
 
 ## Dockerized development
 
@@ -149,6 +155,43 @@ curl http://localhost:3000/
 - File naming convention: `<uuid>.json`.
 - Route handlers call a game service, which calls a storage module.
 - All file writes are centralized in `writeJsonFile` inside `src/storage/jsonFileStore.js` so the storage engine can be swapped later.
+- Save schema includes `schemaVersion` (currently `2`) and supports in-place migration on load for legacy saves.
+
+### Migration Example
+
+Legacy-shaped payloads are normalized to the current schema when loaded/updated.
+
+```bash
+# 1) Create a game
+GAME_ID=$(curl -s -X POST http://localhost:3000/games | jq -r '.id')
+
+# 2) Patch in legacy-ish values (old schema version + non-canonical settlement)
+curl -s -X PATCH "http://localhost:3000/games/$GAME_ID" \
+	-H 'Content-Type: application/json' \
+	-d '{
+		"schemaVersion": 1,
+		"location": "Vault Refuge",
+		"marketAvailability": {
+			"Market District": { "day": "2", "items": ["Water", "food", "unknown-item"] }
+		}
+	}'
+
+# 3) Read back normalized state
+curl -s "http://localhost:3000/games/$GAME_ID"
+```
+
+Expected normalization outcomes:
+- `schemaVersion` upgraded to `2`
+- `location` canonicalized to `vault-refuge`
+- `marketAvailability` settlement and commodity names canonicalized with unknown commodities removed
+
+### Deterministic Test Fixtures
+
+Deterministic replay for balancing/hardening is available in test harnesses via seeded RNG injection.
+
+- Use `buildSequenceRng(values, fallback)` in [test/phase5-future.test.js](test/phase5-future.test.js)
+- Inject through `gameService.__setRandomNumberGeneratorForTests(...)`
+- Re-run the same sequence across multiple games and assert identical snapshots
 
 ## Implemented phase 1 rules
 

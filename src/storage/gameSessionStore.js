@@ -20,6 +20,7 @@ function buildDefaultGame() {
 
   return {
     id: randomUUID(),
+    schemaVersion: 2,
     createdAt: now,
     updatedAt: now,
     day: 1,

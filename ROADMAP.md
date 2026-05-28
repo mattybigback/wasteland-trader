@@ -164,14 +164,14 @@ This document captures the implementation plan for the single-player, turn-based
 - `test/phase4-future.test.js`: positive flow coverage for encounter generation, combat win/run branches, debt-collector pay flow, and equip flows.
 - `test/phase4-negative.test.js`: guard coverage for invalid combat actions, missing encounters, invalid debt-collector actions, and invalid gear/equipment requests.
 
-## Phase 5: Balance, Content, and Hardening (Planned)
+## Phase 5: Balance, Content, and Hardening (Completed - Hardening MVP)
 
 ### Features
-- Economy balancing pass (price ranges, scarcity, rank pacing).
-- Expanded item catalog, settlement differentiation, and encounter variety.
-- Save/load integrity checks and migration strategy for schema evolution.
-- Automated tests for core rules and edge cases.
-- API documentation cleanup and examples.
+- Save/load integrity checks and in-place schema migration for schema evolution.
+- Deterministic fixture coverage for short-run and long-run replay stability.
+- Hardening guards for transaction overflow and error-contract consistency.
+- Baseline balance-boundary assertions across economy/event/combat configuration.
+- API documentation updates for migration and deterministic fixture workflows.
 
 ### Quality Targets
 - Deterministic tests for key game loops.
@@ -179,7 +179,43 @@ This document captures the implementation plan for the single-player, turn-based
 - Stable versioned save schema.
 
 ### Planned Tests
-- `test/phase5-future.test.js` contains todo test specs for balancing constraints, migration integrity, deterministic fixtures, and API compatibility.
+- `test/phase5-future.test.js` now includes implemented foundation coverage for:
+	- schema-version persistence on new game creation,
+	- in-place schema migration and legacy market-availability canonicalization,
+	- deterministic seeded simulation repeatability (short-run and long-run fixtures),
+	- baseline market-price multiplier assertions across settlements,
+	- balance-config boundary assertions for economy/event/combat tuning values,
+	- API bad-request contract compatibility.
+- `test/phase5-negative.test.js` includes implemented hardening coverage for:
+	- 400/404/409 error-contract response shapes,
+	- buy/sell overflow transaction rejection,
+	- sell-gear cash-overflow rejection.
+
+### Completed for Phase 5 (Foundation)
+- Added `schemaVersion` to persisted game state defaults.
+- Added in-place schema migration on load via state normalization.
+- Added migration persistence when legacy saves are loaded through action/query paths.
+- Added foundational Phase 5 tests for migration integrity and deterministic replay behavior.
+
+### Completed for Phase 5 (Hardening Slice 5B)
+- Added numeric overflow guards for buy/sell item transactions.
+- Added numeric overflow guards for sell-gear cash mutation.
+- Added API error-contract matrix tests to lock 400/404/409 response expectations.
+
+### Completed for Phase 5 (Determinism and Balance Slice 5C)
+- Added long-run deterministic seeded simulation tests (15-day replay stability).
+- Added baseline settlement market-price assertions against configured multipliers.
+- Added balance-boundary assertions for economy availability, event probabilities, and combat configuration ranges.
+
+### Remaining for Phase 5
+- None for the hardening MVP roadmap scope.
+
+## Post-Roadmap Enhancements (Deferred)
+
+- Expanded item catalog and deeper settlement differentiation.
+- Encounter variety/content expansion beyond current Phase 4 set.
+- Additional balancing passes (price ranges, scarcity tuning, rank pacing) informed by playtest telemetry.
+- Broader hardening matrix for very large-volume simulation edge cases.
 
 ## Cross-Phase Technical Principles
 
@@ -190,4 +226,4 @@ This document captures the implementation plan for the single-player, turn-based
 
 ## Current Priority
 
-- Begin Phase 5 balance, content, and hardening implementation.
+- Plan and prioritize post-roadmap content expansion backlog.

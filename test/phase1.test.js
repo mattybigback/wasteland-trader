@@ -8,6 +8,7 @@ process.env.GAME_SESSIONS_DIR = TEST_DATA_DIR;
 
 const request = require('supertest');
 const { app } = require('../src/server');
+const gameService = require('../src/services/gameService');
 
 async function resetTestDataDir() {
   await fs.rm(TEST_DATA_DIR, { recursive: true, force: true });
@@ -23,9 +24,11 @@ async function createGame() {
 
 beforeEach(async () => {
   await resetTestDataDir();
+  gameService.__setRandomNumberGeneratorForTests(() => 0.99);
 });
 
 after(async () => {
+  gameService.__resetRandomNumberGeneratorForTests();
   await fs.rm(TEST_DATA_DIR, { recursive: true, force: true });
 });
 
