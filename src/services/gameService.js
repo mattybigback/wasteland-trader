@@ -3,7 +3,9 @@ const {
   getRankThreshold,
   getCarryCapacity,
   getCommodityUnitPrice,
-  listAvailableCommodities
+  listAvailableCommodities,
+  getCommodityAvailabilityChance,
+  COMMODITY_BASE_PRICES
 } = require('../models/economy');
 const {
   EVENT_PROBABILITIES,
@@ -12,6 +14,13 @@ const {
   RUMOR_RELIABILITY,
   MARKET_MULTIPLIER_RANGES
 } = require('../models/worldEvents');
+const {
+  COMBAT_DEFAULTS,
+  RUN_FAIL_DAMAGE,
+  ENCOUNTER_TEMPLATES,
+  LOOT_DROPS,
+  getGearDefinition
+} = require('../models/combatBalance');
 const { MARKET_HISTORY } = require('../models/apiLimits');
 
 const SETTLEMENTS = [
@@ -151,12 +160,74 @@ function ensureEventFields(game) {
   }
 }
 
+function ensureCombatFields(game) {
+  if (typeof game.equippedWeapon !== 'string' || game.equippedWeapon.trim().length === 0) {
+    game.equippedWeapon = null;
+  } else {
+    game.equippedWeapon = String(game.equippedWeapon).trim().toLowerCase();
+  }
+
+  if (typeof game.equippedArmor !== 'string' || game.equippedArmor.trim().length === 0) {
+    game.equippedArmor = null;
+  } else {
+    game.equippedArmor = String(game.equippedArmor).trim().toLowerCase();
+  }
+
+  if (!Array.isArray(game.unequippedGear)) {
+    game.unequippedGear = [];
+  }
+
+  game.unequippedGear = game.unequippedGear
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => {
+      const definition = getGearDefinition(item.name);
+
+      if (!definition) {
+        return null;
+      }
+
+      return {
+        itemType: definition.itemType,
+        name: definition.name
+      };
+    })
+    .filter(Boolean);
+
+  if (!game.currentEncounter || typeof game.currentEncounter !== 'object') {
+    game.currentEncounter = null;
+    return;
+  }
+
+  const template = ENCOUNTER_TEMPLATES[String(game.currentEncounter.type || '').toLowerCase()];
+
+  if (!template) {
+    game.currentEncounter = null;
+    return;
+  }
+
+  game.currentEncounter = {
+    type: template.type,
+    day: Number(game.currentEncounter.day || game.day || 1),
+    settlement: resolveSettlement(game.currentEncounter.settlement) || resolveSettlement(game.location) || SETTLEMENTS[0],
+    enemyHealth: Math.max(1, Number(game.currentEncounter.enemyHealth || template.enemyHealth)),
+    enemyAttack: Math.max(1, Number(game.currentEncounter.enemyAttack || template.enemyAttack)),
+    rewardCash: Math.max(0, Number(game.currentEncounter.rewardCash || 0)),
+    surrenderPenaltyRate: Number.isFinite(Number(game.currentEncounter.surrenderPenaltyRate))
+      ? Number(game.currentEncounter.surrenderPenaltyRate)
+      : Number(template.surrenderPenaltyRate || 0),
+    lootChance: Number.isFinite(Number(game.currentEncounter.lootChance))
+      ? Number(game.currentEncounter.lootChance)
+      : Number(template.lootChance || 0)
+  };
+}
+
 function normalizeGameState(game) {
   ensureRankBonusFields(game);
   ensureRankProgressFields(game);
   ensureInventoryFields(game);
   ensureHideoutFields(game);
   ensureEventFields(game);
+  ensureCombatFields(game);
 
   game.rank = Number(game.rank || 0);
   game.highestRankAchieved = Math.max(Number(game.highestRankAchieved || 0), game.rank);
@@ -184,6 +255,21 @@ function getRivalBlockError(game) {
   return {
     error: 'bad-request',
     message: `A local rival has shut you out in ${blockedSettlement}. Leave and return before using market or medical services here.`
+  };
+}
+
+function getEncounterLockError(game) {
+  const encounter = game.currentEncounter;
+
+  if (!encounter || typeof encounter !== 'object') {
+    return null;
+  }
+
+  const typeLabel = String(encounter.type || 'encounter').toLowerCase();
+
+  return {
+    error: 'bad-request',
+    message: `You must resolve the active ${typeLabel} encounter before taking other actions.`
   };
 }
 
@@ -346,6 +432,35 @@ function getEffectiveCommodityUnitPrice(game, itemName, settlement) {
   return Math.max(1, roundCaps(baseUnitPrice * Number(condition.multiplier || 1)));
 }
 
+function rollMarketAvailability(game) {
+  const settlement = game.location;
+  const day = Number(game.day || 1);
+  const availableItems = Object.keys(COMMODITY_BASE_PRICES).filter(
+    (itemName) => randomNumberGenerator() < getCommodityAvailabilityChance(itemName, settlement)
+  );
+
+  if (!game.marketAvailability || typeof game.marketAvailability !== 'object') {
+    game.marketAvailability = {};
+  }
+
+  game.marketAvailability[settlement] = { day, items: availableItems };
+}
+
+function isItemAvailable(game, itemName, settlement) {
+  const normalizedItem = String(itemName || '').trim().toLowerCase();
+  const normalizedSettlement = String(settlement || '').trim().toLowerCase();
+  const currentDay = Number(game.day || 1);
+
+  const entry = game.marketAvailability?.[normalizedSettlement];
+
+  // No roll yet for this settlement+day → all items available (day-1 / backward-compat fallback)
+  if (!entry || Number(entry.day) !== currentDay) {
+    return true;
+  }
+
+  return Array.isArray(entry.items) && entry.items.includes(normalizedItem);
+}
+
 function getLastMarketHistoryEntry(game, settlement, itemName) {
   const settlementKey = resolveSettlement(settlement);
   const normalizedItemName = String(itemName || '').trim().toLowerCase();
@@ -467,6 +582,110 @@ function rollChance(probability) {
   }
 
   return randomFloat() < bounded;
+}
+
+function pickRandomLootGearName() {
+  if (!Array.isArray(LOOT_DROPS) || LOOT_DROPS.length === 0) {
+    return null;
+  }
+
+  return LOOT_DROPS[randomInt(0, LOOT_DROPS.length - 1)];
+}
+
+function getEquippedWeaponAttackBonus(game) {
+  const definition = getGearDefinition(game.equippedWeapon);
+
+  if (!definition || definition.itemType !== 'weapon') {
+    return 0;
+  }
+
+  return Number(definition.attackBonus || 0);
+}
+
+function getEquippedArmorDefenseBonus(game) {
+  const definition = getGearDefinition(game.equippedArmor);
+
+  if (!definition || definition.itemType !== 'armor') {
+    return 0;
+  }
+
+  return Number(definition.defenseBonus || 0);
+}
+
+function addGearToUnequipped(game, gearName) {
+  const definition = getGearDefinition(gearName);
+
+  if (!definition) {
+    return null;
+  }
+
+  const entry = {
+    itemType: definition.itemType,
+    name: definition.name
+  };
+
+  game.unequippedGear.push(entry);
+  return entry;
+}
+
+function createEncounterFromTemplate(type, settlement, day) {
+  const template = ENCOUNTER_TEMPLATES[type];
+
+  if (!template) {
+    return null;
+  }
+
+  return {
+    type: template.type,
+    day: Number(day || 1),
+    settlement: resolveSettlement(settlement) || SETTLEMENTS[0],
+    enemyHealth: Number(template.enemyHealth),
+    enemyAttack: Number(template.enemyAttack),
+    rewardCash: randomInt(template.rewardCashMin, template.rewardCashMax),
+    surrenderPenaltyRate: Number(template.surrenderPenaltyRate || 0),
+    lootChance: Number(template.lootChance || 0)
+  };
+}
+
+function generateRandomEncounter(game) {
+  if (game.status !== 'active' || game.currentEncounter) {
+    return null;
+  }
+
+  if (!rollChance(COMBAT_DEFAULTS.encounterChancePerDay)) {
+    return null;
+  }
+
+  const debt = Number(game.debt || 0);
+  const settlement = resolveSettlement(game.location) || SETTLEMENTS[0];
+  let encounterType = null;
+
+  if (
+    debt > COMBAT_DEFAULTS.debtCollectorTriggerDebt &&
+    rollChance(COMBAT_DEFAULTS.debtCollectorEncounterChance)
+  ) {
+    encounterType = 'debt-collector';
+  } else {
+    encounterType = rollChance(COMBAT_DEFAULTS.raiderEncounterWeight) ? 'raider' : 'sandstorm';
+  }
+
+  const encounter = createEncounterFromTemplate(encounterType, settlement, game.day);
+
+  if (!encounter) {
+    return null;
+  }
+
+  game.currentEncounter = encounter;
+  return encounter;
+}
+
+function findUnequippedGearIndex(game, itemType, itemName) {
+  const normalizedType = String(itemType || '').trim().toLowerCase();
+  const normalizedName = String(itemName || '').trim().toLowerCase();
+
+  return game.unequippedGear.findIndex(
+    (item) => item.itemType === normalizedType && String(item.name || '').toLowerCase() === normalizedName
+  );
 }
 
 function pickRandomCommodity(excludedItems = new Set()) {
@@ -1339,7 +1558,9 @@ async function advanceDay(gameId, options = {}) {
       events = generateRandomEventsForCurrentDay(game, triggeredBy);
     }
 
+    rollMarketAvailability(game);
     snapshotMarketPricesForCurrentDay(game);
+    generateRandomEncounter(game);
   }
 
   await saveGame(game);
@@ -1368,6 +1589,10 @@ async function sleep(gameId) {
     return loaded;
   }
 
+  if (loaded.game.currentEncounter) {
+    return getEncounterLockError(loaded.game);
+  }
+
   if (isOverCarryCapacity(loaded.game)) {
     return getOverCapacityError(loaded.game);
   }
@@ -1385,6 +1610,10 @@ async function travel(gameId, destination) {
 
   if (loaded.error) {
     return loaded;
+  }
+
+  if (loaded.game.currentEncounter) {
+    return getEncounterLockError(loaded.game);
   }
 
   if (isOverCarryCapacity(loaded.game)) {
@@ -1413,6 +1642,401 @@ async function travel(gameId, destination) {
       game.location = normalizedDestination;
     }
   });
+}
+
+async function getEncounter(gameId) {
+  const loaded = await loadActiveGame(gameId);
+
+  if (loaded.error) {
+    return loaded;
+  }
+
+  return {
+    encounter: loaded.game.currentEncounter
+  };
+}
+
+function buildCombatResultBase(game, action, encounter) {
+  return {
+    action,
+    encounterType: encounter.type,
+    settlement: encounter.settlement,
+    day: Number(game.day || 1)
+  };
+}
+
+function applyCombatDefeatPenalty(game, encounter) {
+  if (encounter.type === 'debt-collector') {
+    game.debt = Math.max(0, Number(game.debt || 0) + COMBAT_DEFAULTS.debtCollectorLossDebtIncrease);
+    return {
+      debtChange: COMBAT_DEFAULTS.debtCollectorLossDebtIncrease,
+      cashLoss: 0
+    };
+  }
+
+  const cashLoss = Math.min(Number(game.cash || 0), Math.max(0, roundCaps(Number(encounter.rewardCash || 0) * 0.5)));
+  game.cash = Number(game.cash || 0) - cashLoss;
+
+  return {
+    debtChange: 0,
+    cashLoss
+  };
+}
+
+function resolveFightAction(game, encounter) {
+  const initialHealth = Number(game.health || 0);
+  const playerAttack = COMBAT_DEFAULTS.basePlayerAttack + getEquippedWeaponAttackBonus(game);
+  const armorDefense = getEquippedArmorDefenseBonus(game);
+  const defense = encounter.type === 'debt-collector' ? 0 : armorDefense;
+  const damagePerEnemyHit = Math.max(1, Number(encounter.enemyAttack || 1) - defense);
+
+  let enemyHealth = Number(encounter.enemyHealth || 1);
+  let playerHealth = initialHealth;
+
+  while (enemyHealth > 0 && playerHealth > 0) {
+    enemyHealth -= playerAttack;
+
+    if (enemyHealth <= 0) {
+      break;
+    }
+
+    playerHealth -= damagePerEnemyHit;
+  }
+
+  const damageTaken = Math.max(0, initialHealth - Math.max(0, playerHealth));
+
+  if (playerHealth <= 0) {
+    const penalty = applyCombatDefeatPenalty(game, encounter);
+    game.health = 1;
+    game.currentEncounter = null;
+
+    return {
+      outcome: 'loss',
+      damageTaken,
+      rewardCash: 0,
+      debtChange: penalty.debtChange,
+      cashLoss: penalty.cashLoss,
+      enemyRemainingHealth: Math.max(0, enemyHealth),
+      playerAttack,
+      playerDefense: defense,
+      armorIgnored: encounter.type === 'debt-collector'
+    };
+  }
+
+  game.health = Math.max(1, playerHealth);
+
+  if (encounter.type === 'debt-collector') {
+    const debtReduction = Math.min(
+      Number(game.debt || 0),
+      COMBAT_DEFAULTS.debtCollectorWinDebtReduction
+    );
+    game.debt = Math.max(0, Number(game.debt || 0) - debtReduction);
+  } else {
+    game.cash = Number(game.cash || 0) + Number(encounter.rewardCash || 0);
+  }
+
+  let loot = null;
+
+  if (rollChance(Number(encounter.lootChance || 0))) {
+    const droppedGearName = pickRandomLootGearName();
+
+    if (droppedGearName) {
+      loot = addGearToUnequipped(game, droppedGearName);
+    }
+  }
+
+  game.currentEncounter = null;
+
+  return {
+    outcome: 'win',
+    damageTaken,
+    rewardCash: encounter.type === 'debt-collector' ? 0 : Number(encounter.rewardCash || 0),
+    debtChange: encounter.type === 'debt-collector'
+      ? -Math.min(Number(game.debt || 0) + COMBAT_DEFAULTS.debtCollectorWinDebtReduction, COMBAT_DEFAULTS.debtCollectorWinDebtReduction)
+      : 0,
+    cashLoss: 0,
+    enemyRemainingHealth: 0,
+    playerAttack,
+    playerDefense: defense,
+    armorIgnored: encounter.type === 'debt-collector',
+    loot
+  };
+}
+
+async function resolveCombat(gameId, action) {
+  const loaded = await loadActiveGame(gameId);
+
+  if (loaded.error) {
+    return loaded;
+  }
+
+  const game = loaded.game;
+  const encounter = game.currentEncounter;
+
+  if (!encounter) {
+    return { error: 'bad-request', message: 'No active encounter to resolve.' };
+  }
+
+  const normalizedAction = String(action || '').trim().toLowerCase();
+  const allowedActions = encounter.type === 'debt-collector'
+    ? ['fight', 'run', 'pay']
+    : ['fight', 'run', 'surrender'];
+
+  if (!allowedActions.includes(normalizedAction)) {
+    return {
+      error: 'bad-request',
+      message: `action must be one of: ${allowedActions.join(', ')}.`
+    };
+  }
+
+  let combatResult = buildCombatResultBase(game, normalizedAction, encounter);
+
+  if (normalizedAction === 'fight') {
+    combatResult = {
+      ...combatResult,
+      ...resolveFightAction(game, encounter)
+    };
+  } else if (normalizedAction === 'run') {
+    const escaped = rollChance(COMBAT_DEFAULTS.runSuccessChance);
+
+    if (escaped) {
+      game.currentEncounter = null;
+      combatResult = {
+        ...combatResult,
+        outcome: 'escaped',
+        damageTaken: 0,
+        rewardCash: 0,
+        debtChange: 0,
+        cashLoss: 0
+      };
+    } else {
+      const damage = randomInt(RUN_FAIL_DAMAGE.min, RUN_FAIL_DAMAGE.max);
+      game.health = Math.max(1, Number(game.health || 0) - damage);
+
+      if (encounter.type === 'debt-collector') {
+        game.debt = Math.max(0, Number(game.debt || 0) + Math.floor(COMBAT_DEFAULTS.debtCollectorLossDebtIncrease / 2));
+      }
+
+      combatResult = {
+        ...combatResult,
+        outcome: 'run-failed',
+        damageTaken: damage,
+        rewardCash: 0,
+        debtChange: encounter.type === 'debt-collector'
+          ? Math.floor(COMBAT_DEFAULTS.debtCollectorLossDebtIncrease / 2)
+          : 0,
+        cashLoss: 0
+      };
+    }
+  } else if (normalizedAction === 'pay') {
+    const payment = Math.min(Number(game.debt || 0), COMBAT_DEFAULTS.debtCollectorPayAmount);
+    game.debt = Math.max(0, Number(game.debt || 0) - payment);
+    game.currentEncounter = null;
+    combatResult = {
+      ...combatResult,
+      outcome: 'paid-off',
+      damageTaken: 0,
+      rewardCash: 0,
+      debtChange: -payment,
+      cashLoss: 0
+    };
+  } else {
+    const cashLoss = Math.min(
+      Number(game.cash || 0),
+      Math.max(0, roundCaps(Number(encounter.rewardCash || 0) * Number(encounter.surrenderPenaltyRate || 0)))
+    );
+
+    game.cash = Number(game.cash || 0) - cashLoss;
+    game.currentEncounter = null;
+    combatResult = {
+      ...combatResult,
+      outcome: 'surrendered',
+      damageTaken: 0,
+      rewardCash: 0,
+      debtChange: 0,
+      cashLoss
+    };
+  }
+
+  await saveGame(game);
+
+  gameplayLog('combat.resolved', {
+    gameId: game.id,
+    action: normalizedAction,
+    encounterType: encounter.type,
+    outcome: combatResult.outcome,
+    health: game.health,
+    cash: game.cash,
+    debt: game.debt
+  });
+
+  return {
+    game,
+    combatResult
+  };
+}
+
+async function equipWeapon(gameId, weaponName) {
+  const loaded = await loadActiveGame(gameId);
+
+  if (loaded.error) {
+    return loaded;
+  }
+
+  const game = loaded.game;
+
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
+  const normalizedName = String(weaponName || '').trim().toLowerCase();
+
+  if (!normalizedName) {
+    return { error: 'bad-request', message: 'weaponName is required.' };
+  }
+
+  const gearDefinition = getGearDefinition(normalizedName);
+
+  if (!gearDefinition || gearDefinition.itemType !== 'weapon') {
+    return { error: 'bad-request', message: 'Unknown weapon.' };
+  }
+
+  const index = findUnequippedGearIndex(game, 'weapon', normalizedName);
+
+  if (index < 0) {
+    return { error: 'bad-request', message: 'Weapon is not in unequipped gear.' };
+  }
+
+  if (game.equippedWeapon) {
+    addGearToUnequipped(game, game.equippedWeapon);
+  }
+
+  game.unequippedGear.splice(index, 1);
+  game.equippedWeapon = normalizedName;
+
+  await saveGame(game);
+
+  return {
+    game,
+    equipment: {
+      slot: 'weapon',
+      equipped: normalizedName
+    }
+  };
+}
+
+async function equipArmor(gameId, armorName) {
+  const loaded = await loadActiveGame(gameId);
+
+  if (loaded.error) {
+    return loaded;
+  }
+
+  const game = loaded.game;
+
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
+  const normalizedName = String(armorName || '').trim().toLowerCase();
+
+  if (!normalizedName) {
+    return { error: 'bad-request', message: 'armorName is required.' };
+  }
+
+  const gearDefinition = getGearDefinition(normalizedName);
+
+  if (!gearDefinition || gearDefinition.itemType !== 'armor') {
+    return { error: 'bad-request', message: 'Unknown armor.' };
+  }
+
+  const index = findUnequippedGearIndex(game, 'armor', normalizedName);
+
+  if (index < 0) {
+    return { error: 'bad-request', message: 'Armor is not in unequipped gear.' };
+  }
+
+  if (game.equippedArmor) {
+    addGearToUnequipped(game, game.equippedArmor);
+  }
+
+  game.unequippedGear.splice(index, 1);
+  game.equippedArmor = normalizedName;
+
+  await saveGame(game);
+
+  return {
+    game,
+    equipment: {
+      slot: 'armor',
+      equipped: normalizedName
+    }
+  };
+}
+
+async function sellGear(gameId, itemType, name) {
+  const loaded = await loadActiveGame(gameId);
+
+  if (loaded.error) {
+    return loaded;
+  }
+
+  const game = loaded.game;
+
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
+  const normalizedType = String(itemType || '').trim().toLowerCase();
+  const normalizedName = String(name || '').trim().toLowerCase();
+
+  if (!normalizedType || !normalizedName) {
+    return { error: 'bad-request', message: 'itemType and name are required.' };
+  }
+
+  const gearDefinition = getGearDefinition(normalizedName);
+
+  if (!gearDefinition || gearDefinition.itemType !== normalizedType) {
+    return { error: 'bad-request', message: 'Unknown gear item.' };
+  }
+
+  let sold = false;
+
+  if (normalizedType === 'weapon' && game.equippedWeapon === normalizedName) {
+    game.equippedWeapon = null;
+    sold = true;
+  }
+
+  if (normalizedType === 'armor' && game.equippedArmor === normalizedName) {
+    game.equippedArmor = null;
+    sold = true;
+  }
+
+  if (!sold) {
+    const index = findUnequippedGearIndex(game, normalizedType, normalizedName);
+
+    if (index < 0) {
+      return { error: 'bad-request', message: 'Gear item not found.' };
+    }
+
+    game.unequippedGear.splice(index, 1);
+    sold = true;
+  }
+
+  const sellValue = Number(gearDefinition.sellValue || 0);
+  game.cash = Number(game.cash || 0) + sellValue;
+
+  await saveGame(game);
+
+  return {
+    game,
+    trade: {
+      action: 'sell-gear',
+      itemType: normalizedType,
+      name: normalizedName,
+      totalRevenue: sellValue
+    }
+  };
 }
 
 async function getEventLog(gameId, options = {}) {
@@ -1599,6 +2223,10 @@ async function heal(gameId, percentage) {
 
   const game = loaded.game;
 
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
   if (isRivalBlockedAtSettlement(game, game.location)) {
     return getRivalBlockError(game);
   }
@@ -1646,6 +2274,11 @@ async function payDebt(gameId, amount) {
   }
 
   const game = loaded.game;
+
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
   const details = buildDebtTransactionDetails(
     game,
     amount,
@@ -1699,6 +2332,11 @@ async function getDebtQuote(gameId, amount) {
   }
 
   const game = loaded.game;
+
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
   const details = buildDebtTransactionDetails(game, amount, 'Quote amount must be a positive number.');
 
   if (details.error) {
@@ -1747,6 +2385,10 @@ async function buyItem(gameId, itemName, quantity) {
 
   const game = loaded.game;
 
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
   if (isRivalBlockedAtSettlement(game, game.location)) {
     return getRivalBlockError(game);
   }
@@ -1766,6 +2408,10 @@ async function buyItem(gameId, itemName, quantity) {
 
   if (!Number.isFinite(unitPrice)) {
     return { error: 'bad-request', message: 'Unknown commodity.' };
+  }
+
+  if (!isItemAvailable(game, normalizedItemName, game.location)) {
+    return { error: 'bad-request', message: 'Item not available at this location today.' };
   }
 
   const currentUnits = getInventoryItemUnits(game);
@@ -1843,6 +2489,10 @@ async function sellItem(gameId, itemName, quantity) {
 
   const game = loaded.game;
 
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
   if (isRivalBlockedAtSettlement(game, game.location)) {
     return getRivalBlockError(game);
   }
@@ -1868,6 +2518,10 @@ async function sellItem(gameId, itemName, quantity) {
 
   if (!Number.isFinite(unitPrice)) {
     return { error: 'bad-request', message: 'Unknown commodity.' };
+  }
+
+  if (!isItemAvailable(game, normalizedItemName, game.location)) {
+    return { error: 'bad-request', message: 'Item not available at this location today.' };
   }
 
   const totalRevenue = unitPrice * requestedQuantity;
@@ -1911,6 +2565,11 @@ async function dumpItem(gameId, itemName, quantity) {
   }
 
   const game = loaded.game;
+
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
   const normalizedItemName = String(itemName || '').trim().toLowerCase();
   const requestedQuantity = Number(quantity);
 
@@ -1961,6 +2620,11 @@ async function stashItem(gameId, itemName, quantity) {
   }
 
   const game = loaded.game;
+
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
   const normalizedItemName = String(itemName || '').trim().toLowerCase();
   const requestedQuantity = Number(quantity);
 
@@ -2038,6 +2702,11 @@ async function retrieveItem(gameId, itemName, quantity) {
   }
 
   const game = loaded.game;
+
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
   const normalizedItemName = String(itemName || '').trim().toLowerCase();
   const requestedQuantity = Number(quantity);
 
@@ -2176,10 +2845,12 @@ async function getMarket(gameId, settlement) {
   const location = resolveSettlement(settlement) || resolveSettlement(game.location) || SETTLEMENTS[0];
   pruneExpiredMarketConditions(game);
 
-  const commodities = listAvailableCommodities(location).map((commodity) => ({
-    itemName: commodity.itemName,
-    unitPrice: getEffectiveCommodityUnitPrice(game, commodity.itemName, location)
-  }));
+  const commodities = listAvailableCommodities(location)
+    .filter((commodity) => isItemAvailable(game, commodity.itemName, location))
+    .map((commodity) => ({
+      itemName: commodity.itemName,
+      unitPrice: getEffectiveCommodityUnitPrice(game, commodity.itemName, location)
+    }));
 
   return {
     market: {
@@ -2238,6 +2909,11 @@ module.exports = {
   dumpItem,
   stashItem,
   retrieveItem,
+  getEncounter,
+  resolveCombat,
+  equipWeapon,
+  equipArmor,
+  sellGear,
   getEventLog,
   getMarketPriceHistory,
   getHideout,

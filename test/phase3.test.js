@@ -727,6 +727,15 @@ test('Phase 3: rival-encounter blocks trade and heal until traveling away', asyn
 
 	assert.equal(returnTravel.status, 200);
 
+	// Force ammo available after travel — availability may have been rolled as unavailable.
+	await request(app)
+		.patch(`/games/${game.id}`)
+		.send({
+			marketAvailability: {
+				'market-district': { day: returnTravel.body.day, items: ['water', 'food', 'chems', 'scrap', 'ammo'] }
+			}
+		});
+
 	const unblockedBuy = await request(app)
 		.post(`/games/${game.id}/actions/buy-item`)
 		.send({ itemName: 'ammo', quantity: 1 });

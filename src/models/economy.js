@@ -32,6 +32,52 @@ const SETTLEMENT_PRICE_MULTIPLIER = {
   'ghost-town': 0.75
 };
 
+// Availability probability per item, per settlement.
+// 'default' applies to any settlement not listed.
+// 0 = never available; 1 = always available.
+const COMMODITY_AVAILABILITY = {
+  water: {
+    default: 0.9,
+    'market-district': 1.0,
+    'trading-post': 1.0,
+    'vault-refuge': 0.95,
+    'raider-camp': 0.5,
+    'ghost-town': 0.4
+  },
+  food: {
+    default: 0.85,
+    'market-district': 1.0,
+    'trading-post': 0.95,
+    'vault-refuge': 0.9,
+    'raider-camp': 0.3,
+    'ghost-town': 0.35
+  },
+  chems: {
+    default: 0.55,
+    'market-district': 0.7,
+    'trading-post': 0.6,
+    'vault-refuge': 0.2,
+    'raider-camp': 0.9,
+    'ghost-town': 0.5
+  },
+  scrap: {
+    default: 0.75,
+    'market-district': 0.8,
+    'trading-post': 0.85,
+    'vault-refuge': 0.4,
+    'raider-camp': 0.9,
+    'ghost-town': 0.7
+  },
+  ammo: {
+    default: 0.65,
+    'market-district': 0.8,
+    'trading-post': 0.75,
+    'vault-refuge': 0.3,
+    'raider-camp': 0.95,
+    'ghost-town': 0.45
+  }
+};
+
 function getRankThreshold(rank) {
   return Number(RANK_THRESHOLDS[rank] ?? Number.MAX_SAFE_INTEGER);
 }
@@ -61,10 +107,29 @@ function listAvailableCommodities(settlement) {
   }));
 }
 
+function getCommodityAvailabilityChance(itemName, settlement) {
+  const normalizedItem = String(itemName || '').trim().toLowerCase();
+  const normalizedSettlement = String(settlement || '').trim().toLowerCase();
+
+  const itemAvailability = COMMODITY_AVAILABILITY[normalizedItem];
+
+  if (!itemAvailability) {
+    return 0;
+  }
+
+  const chance = Object.prototype.hasOwnProperty.call(itemAvailability, normalizedSettlement)
+    ? itemAvailability[normalizedSettlement]
+    : itemAvailability.default ?? 1;
+
+  return Number(chance);
+}
+
 module.exports = {
   RANK_THRESHOLDS,
   getRankThreshold,
   getCarryCapacity,
   getCommodityUnitPrice,
-  listAvailableCommodities
+  listAvailableCommodities,
+  getCommodityAvailabilityChance,
+  COMMODITY_BASE_PRICES
 };

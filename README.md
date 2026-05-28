@@ -35,8 +35,9 @@ npm run test:future
 Test files are organized by phase:
 - `test/phase1.test.js` and `test/phase1-negative.test.js`
 - `test/phase2.test.js` and `test/phase2-negative.test.js`
-- `test/phase3-future.test.js` (implemented Phase 3 integration coverage)
-- `test/phase4-future.test.js` and `test/phase5-future.test.js` (todo scaffolds)
+- `test/phase3-future.test.js` and `test/phase3-negative.test.js` (implemented Phase 3 coverage)
+- `test/phase4-future.test.js` and `test/phase4-negative.test.js` (implemented Phase 4 coverage)
+- `test/phase5-future.test.js` (todo scaffold)
 
 ## Dockerized development
 
@@ -100,6 +101,7 @@ curl http://localhost:3000/
 - `GET /games/:id/market` -> list commodity prices (defaults to current settlement)
 	- Response shape: `{ currentLocation, location, commodities: [{ itemName, unitPrice }] }`
 	- Optional filter: `GET /games/:id/market?settlement=Vault_Refuge`
+	- Note: commodities list is filtered to only items available at the settlement today (availability is rolled on day advance)
 - `GET /games/:id/market-history` -> list historical prices per day, settlement, and commodity
 	- Response shape: `{ total, items }` where each item includes `day`, `settlement`, `itemName`, `unitPrice`, `previousPrice`, `delta`, `direction`
 	- Default response window: last 10 entries
@@ -122,6 +124,21 @@ curl http://localhost:3000/
 	- Response shape: `{ game, transfer }`
 - `POST /games/:id/actions/retrieve-item` -> move commodity units from current settlement hideout into inventory
 	- Response shape: `{ game, transfer }`
+- `GET /games/:id/encounter` -> read current active encounter, if any
+	- Response shape: `{ encounter }` where encounter is either `null` or `{ type, day, settlement, enemyHealth, enemyAttack, rewardCash, surrenderPenaltyRate, lootChance }`
+- `POST /games/:id/actions/combat` -> resolve encounter action
+	- Request body for regular encounters: `{ "action": "fight" | "run" | "surrender" }`
+	- Request body for debt-collector encounters: `{ "action": "fight" | "run" | "pay" }`
+	- Response shape: `{ game, combatResult }`
+- `POST /games/:id/actions/equip-weapon` -> equip a weapon from `unequippedGear`
+	- Request body: `{ "weaponName": "pipe-rifle" }`
+	- Response shape: `{ game, equipment }`
+- `POST /games/:id/actions/equip-armor` -> equip armor from `unequippedGear`
+	- Request body: `{ "armorName": "combat-vest" }`
+	- Response shape: `{ game, equipment }`
+- `POST /games/:id/actions/sell-gear` -> sell equipped or unequipped gear for caps
+	- Request body: `{ "itemType": "weapon" | "armor", "name": "pipe-rifle" }`
+	- Response shape: `{ game, trade }`
 - `POST /games/:id/debt` -> unified debt endpoint with mode:
 	- `{ "mode": "quote", "amount": 500 }` returns a quote object with principal, early fee, total cost, and projected balances
 	- `{ "mode": "pay", "amount": 500 }` returns `{ game, repayment }`
@@ -188,6 +205,25 @@ curl http://localhost:3000/
 	- Retrieved items still respect carry-capacity limits
 	- Settlement inputs support alias formats such as `market-district`, `market_district`, or `Market District`
 
+## Implemented phase 4 combat MVP
+
+- Encounter generation:
+	- Day advancement can roll a combat encounter and persist it to `currentEncounter`
+	- Encounter types include `raider`, `sandstorm`, and `debt-collector`
+	- Use `GET /games/:id/encounter` to inspect pending encounter state
+- Combat actions:
+	- Regular encounters support `fight`, `run`, and `surrender`
+	- Debt-collector encounters support `fight`, `run`, and `pay`
+	- While an encounter is active, non-combat action endpoints are locked until the encounter is resolved
+	- `fight` uses flat stats: base attack + equipped weapon bonus, with armor defense applied except against debt-collector (armor ignored)
+	- `run` has success/failure branching; failed runs keep the encounter active and apply damage
+	- `surrender` (regular only) applies cash penalty and clears encounter
+	- `pay` (debt-collector only) reduces debt and clears encounter
+- Gear system:
+	- Gear drops can be added to `unequippedGear`
+	- `equip-weapon` and `equip-armor` swap equipped gear from `unequippedGear`
+	- `sell-gear` removes gear and grants fixed caps based on gear definition values
+
 ## Configuration
 
 Tunable game constants are centralized in model config files:
@@ -208,3 +244,10 @@ Tunable game constants are centralized in model config files:
 - `CARRY_CAPACITY_BY_RANK`: inventory unit capacity per rank
 - `COMMODITY_BASE_PRICES`: base unit price per commodity type
 - `SETTLEMENT_PRICE_MULTIPLIER`: price variance factor per settlement
+
+### Combat Balance ([src/models/combatBalance.js](src/models/combatBalance.js))
+- `COMBAT_DEFAULTS`: encounter chance, run success, base player attack, debt-collector tuning
+- `RUN_FAIL_DAMAGE`: random damage range when run fails
+- `ENCOUNTER_TEMPLATES`: per-encounter base enemy stats and reward ranges
+- `GEAR_DEFINITIONS`: weapon/armor stat bonuses and sell values
+- `LOOT_DROPS`: eligible gear names that can drop from combat wins

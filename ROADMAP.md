@@ -54,6 +54,7 @@ This document captures the implementation plan for the single-player, turn-based
 - Item disposal (`dump`) for emergency capacity recovery.
 - Settlement hideouts for stash/retrieve overflow management.
 - Settlement alias normalization (spaces, underscores, hyphens).
+- Item availability weighting per settlement: each item has a per-settlement availability probability that is rolled on day advance. If unavailable, the item is hidden from market and blocks buy/sell.
 
 ### Delivered Endpoints
 - `GET /games/:id/market`
@@ -66,7 +67,7 @@ This document captures the implementation plan for the single-player, turn-based
 - `POST /games/:id/actions/retrieve-item`
 
 ### Test Coverage
-- `test/phase2.test.js`: positive flow coverage (weighted average inventory pricing, over-capacity block after demotion, stash/retrieve with settlement aliases).
+- `test/phase2.test.js`: positive flow coverage (weighted average inventory pricing, over-capacity block after demotion, stash/retrieve with settlement aliases, item availability day-1 fallback, availability rolling on sleep/travel, buy/sell rejection when unavailable).
 - `test/phase2-negative.test.js`: guard coverage (unknown commodities/settlements, hideout filter validation, insufficient stash quantity, ended-game lockout for market actions).
 
 ## Phase 3: Dynamic World Events (Completed)
@@ -92,14 +93,18 @@ This document captures the implementation plan for the single-player, turn-based
 - Market-history responses default to the last 10 entries unless a `limit` is provided.
 
 ### Test Coverage
-- `test/phase3-future.test.js` now contains deterministic Phase 3 integration tests for:
+- `test/phase3-future.test.js` contains deterministic Phase 3 integration tests for:
 	- event generation on sleep/travel,
 	- persisted history retrieval,
 	- settlement filtering,
 	- deterministic RNG behavior,
 	- rumor reliability progression and demotion persistence,
 	- scarcity/crash pricing effects,
-	- market history snapshots and trend indicators.
+	- market history snapshots and trend indicators,
+	- all new event types (weapon-damage, ammo-stash, friendly-encounter, rival-encounter, nighttime-robbery, pickpocket, settlement-unrest, supply-shortage).
+- `test/phase3-negative.test.js` contains guard/validation tests for:
+	- events endpoint: invalid day/settlement/limit filters with correct error responses,
+	- market-history endpoint: invalid settlement/item/fromDay/toDay/limit filters, day window validation, and boundary checks.
 
 ### Completed for Phase 3
 - Event probabilities and balancing multipliers moved to [src/models/worldEvents.js](src/models/worldEvents.js).
@@ -129,22 +134,35 @@ This document captures the implementation plan for the single-player, turn-based
 - [x] Run full test suite and verify no regressions.
 - [x] Update docs and mark Phase 3 complete.
 
-## Phase 4: Combat and Gear Systems (Planned)
+## Phase 4: Combat and Gear Systems (Completed)
 
 ### Features
 - Encounter generation (raiders, hazards, etc.).
 - Combat decision actions (fight, run, surrender).
-- Weapon and armor systems (stats, durability, repair).
-- Damage model integrated with health/armor and debt-collector exceptions.
+- Weapon and armor systems (simple flat stat bonuses, no durability/repair in MVP).
+- Damage model integrated with health/armor and debt-collector armor-ignore exception.
 - Loot/reward and loss outcomes tied to risk level.
 
-### Proposed API Additions
+### Delivered Endpoints
 - `GET /games/:id/encounter`
 - `POST /games/:id/actions/combat`
-- Gear management endpoints for equip/repair/trade
+- `POST /games/:id/actions/equip-weapon`
+- `POST /games/:id/actions/equip-armor`
+- `POST /games/:id/actions/sell-gear`
 
-### Planned Tests
-- `test/phase4-future.test.js` contains todo test specs for encounter generation, combat branching, and gear-influenced outcomes.
+### Delivered Behavior
+- Sleep/travel day advancement can generate and persist an active encounter in `currentEncounter`.
+- Encounter set includes `raider`, `sandstorm`, and `debt-collector`.
+- Combat supports regular actions (`fight`, `run`, `surrender`) and debt-collector actions (`fight`, `run`, `pay`).
+- Pending encounters lock non-combat action endpoints until combat is resolved.
+- Weapon and armor gear stats affect combat outcomes via flat attack/defense bonuses.
+- Debt-collector combat ignores armor defense and supports debt-reduction payoff flow.
+- Combat win/loss/run outcomes persist health/cash/debt updates and clear or retain encounter state appropriately.
+- Loot drops populate `unequippedGear`; equip actions swap into `equippedWeapon`/`equippedArmor`.
+
+### Test Coverage
+- `test/phase4-future.test.js`: positive flow coverage for encounter generation, combat win/run branches, debt-collector pay flow, and equip flows.
+- `test/phase4-negative.test.js`: guard coverage for invalid combat actions, missing encounters, invalid debt-collector actions, and invalid gear/equipment requests.
 
 ## Phase 5: Balance, Content, and Hardening (Planned)
 
@@ -172,4 +190,4 @@ This document captures the implementation plan for the single-player, turn-based
 
 ## Current Priority
 
-- Begin Phase 4 combat and gear implementation.
+- Begin Phase 5 balance, content, and hardening implementation.

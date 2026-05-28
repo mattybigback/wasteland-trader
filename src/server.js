@@ -212,6 +212,27 @@ app.get('/games/:id/market-history', async (req, res, next) => {
   }
 });
 
+app.get('/games/:id/encounter', async (req, res, next) => {
+  try {
+    const result = await gameService.getEncounter(req.params.id);
+
+    if (result.error === 'not-found') {
+      return res.status(404).json({ error: 'Game session not found.' });
+    }
+
+    if (result.error === 'game-ended') {
+      return res.status(409).json({
+        error: 'Game session has already ended.',
+        game: result.game
+      });
+    }
+
+    return res.status(200).json({ encounter: result.encounter });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.get('/games/:id/hideout', async (req, res, next) => {
   try {
     const result = await gameService.getHideout(req.params.id, req.query?.settlement);
@@ -398,6 +419,110 @@ app.post('/games/:id/actions/retrieve-item', async (req, res, next) => {
       req.params.id,
       req.body?.itemName,
       req.body?.quantity
+    );
+
+    if (result.error === 'not-found') {
+      return res.status(404).json({ error: 'Game session not found.' });
+    }
+
+    if (result.error === 'game-ended') {
+      return res.status(409).json({
+        error: 'Game session has already ended.',
+        game: result.game
+      });
+    }
+
+    if (result.error === 'bad-request') {
+      return res.status(400).json({ error: result.message });
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post('/games/:id/actions/combat', async (req, res, next) => {
+  try {
+    const result = await gameService.resolveCombat(req.params.id, req.body?.action);
+
+    if (result.error === 'not-found') {
+      return res.status(404).json({ error: 'Game session not found.' });
+    }
+
+    if (result.error === 'game-ended') {
+      return res.status(409).json({
+        error: 'Game session has already ended.',
+        game: result.game
+      });
+    }
+
+    if (result.error === 'bad-request') {
+      return res.status(400).json({ error: result.message });
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post('/games/:id/actions/equip-weapon', async (req, res, next) => {
+  try {
+    const result = await gameService.equipWeapon(req.params.id, req.body?.weaponName);
+
+    if (result.error === 'not-found') {
+      return res.status(404).json({ error: 'Game session not found.' });
+    }
+
+    if (result.error === 'game-ended') {
+      return res.status(409).json({
+        error: 'Game session has already ended.',
+        game: result.game
+      });
+    }
+
+    if (result.error === 'bad-request') {
+      return res.status(400).json({ error: result.message });
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post('/games/:id/actions/equip-armor', async (req, res, next) => {
+  try {
+    const result = await gameService.equipArmor(req.params.id, req.body?.armorName);
+
+    if (result.error === 'not-found') {
+      return res.status(404).json({ error: 'Game session not found.' });
+    }
+
+    if (result.error === 'game-ended') {
+      return res.status(409).json({
+        error: 'Game session has already ended.',
+        game: result.game
+      });
+    }
+
+    if (result.error === 'bad-request') {
+      return res.status(400).json({ error: result.message });
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post('/games/:id/actions/sell-gear', async (req, res, next) => {
+  try {
+    const result = await gameService.sellGear(
+      req.params.id,
+      req.body?.itemType,
+      req.body?.name
     );
 
     if (result.error === 'not-found') {
