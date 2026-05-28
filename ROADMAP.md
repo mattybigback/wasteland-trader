@@ -53,6 +53,8 @@ This document captures the implementation plan for the single-player, turn-based
 - Over-capacity lock on `sleep`/`travel` until inventory is reduced.
 - Item disposal (`dump`) for emergency capacity recovery.
 - Settlement hideouts for stash/retrieve overflow management.
+- Atomic hideout transfer transactions with mixed stash/retrieve operations.
+- Global once-per-day hideout transfer lock to prevent inventory-capacity bypass.
 - Settlement alias normalization (spaces, underscores, hyphens).
 - Item availability weighting per settlement: each item has a per-settlement availability probability that is rolled on day advance. If unavailable, the item is hidden from market and blocks buy/sell.
 
@@ -65,10 +67,11 @@ This document captures the implementation plan for the single-player, turn-based
 - `GET /games/:id/hideouts`
 - `POST /games/:id/actions/stash-item`
 - `POST /games/:id/actions/retrieve-item`
+- `POST /games/:id/actions/stash-transaction`
 
 ### Test Coverage
 - `test/economy-market.test.js`: market/economy coverage (weighted average inventory pricing, item availability day-1 fallback, availability rolling on sleep/travel, buy/sell rejection when unavailable, unknown commodity guard, ended-game market lockout).
-- `test/inventory-hideouts.test.js`: inventory/hideout coverage (over-capacity block after demotion, stash/retrieve with settlement aliases, hideout filter validation, unknown settlement alias and insufficient stash quantity guards).
+- `test/inventory-hideouts.test.js`: inventory/hideout coverage (over-capacity block after demotion, travel day-advance invariant, current-settlement stash invariant, atomic mixed stash/retrieve transactions, daily lock conflict/reset behavior, no-partial-commit guard, encounter-vs-lock precedence, hideout filter validation, unknown settlement alias and insufficient stash quantity guards).
 
 ## Phase 3: Dynamic World Events (Completed)
 

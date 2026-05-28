@@ -407,6 +407,10 @@ app.post('/games/:id/actions/stash-item', async (req, res, next) => {
       return res.status(400).json({ error: result.message });
     }
 
+    if (result.error === 'conflict') {
+      return res.status(409).json({ error: result.message });
+    }
+
     return res.status(200).json(result);
   } catch (error) {
     return next(error);
@@ -434,6 +438,42 @@ app.post('/games/:id/actions/retrieve-item', async (req, res, next) => {
 
     if (result.error === 'bad-request') {
       return res.status(400).json({ error: result.message });
+    }
+
+    if (result.error === 'conflict') {
+      return res.status(409).json({ error: result.message });
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post('/games/:id/actions/stash-transaction', async (req, res, next) => {
+  try {
+    const result = await gameService.runHideoutTransferTransaction(
+      req.params.id,
+      req.body?.operations
+    );
+
+    if (result.error === 'not-found') {
+      return res.status(404).json({ error: 'Game session not found.' });
+    }
+
+    if (result.error === 'game-ended') {
+      return res.status(409).json({
+        error: 'Game session has already ended.',
+        game: result.game
+      });
+    }
+
+    if (result.error === 'bad-request') {
+      return res.status(400).json({ error: result.message });
+    }
+
+    if (result.error === 'conflict') {
+      return res.status(409).json({ error: result.message });
     }
 
     return res.status(200).json(result);

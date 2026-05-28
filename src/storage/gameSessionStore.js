@@ -42,6 +42,7 @@ function buildDefaultGame() {
     location: 'market-district',
     inventory: [],
     hideouts: {},
+    lastHideoutTransactionDay: 0,
     weapons: [],
     equippedWeapon: null,
     equippedArmor: null,

@@ -135,6 +135,11 @@ curl http://localhost:3000/
 	- Response shape: `{ game, transfer }`
 - `POST /games/:id/actions/retrieve-item` -> move commodity units from current settlement hideout into inventory
 	- Response shape: `{ game, transfer }`
+- `POST /games/:id/actions/stash-transaction` -> run a single atomic hideout transfer transaction with mixed stash/retrieve operations
+	- Request body: `{ operations: [{ action: "stash" | "retrieve", itemName, quantity }] }`
+	- Response shape: `{ game, transfer }` where `transfer.operations` lists each applied operation in order
+	- Limits: one successful hideout transaction per day (global), up to two operations per commodity in the game catalog (one stash + one retrieve per commodity) in a single transaction
+	- Conflict behavior: after one successful transfer transaction (including legacy `stash-item` or `retrieve-item`), hideout transfers return `409` until day advances via `sleep` or `travel`
 - `GET /games/:id/encounter` -> read current active encounter, if any
 	- Response shape: `{ encounter }` where encounter is either `null` or `{ type, day, settlement, enemyHealth, enemyAttack, rewardCash, surrenderPenaltyRate, lootChance }`
 - `POST /games/:id/actions/combat` -> resolve encounter action
@@ -250,6 +255,9 @@ Deterministic replay for balancing/hardening is available in test harnesses via 
 - Settlement hideouts:
 	- Every settlement has its own stash (unlimited capacity)
 	- You can only stash/retrieve at your current settlement
+	- Hideout transfers are allowed once per day globally across all settlements
+	- Use `POST /games/:id/actions/stash-transaction` to move multiple item types (and mix stash/retrieve) in one atomic request
+	- Legacy single-item endpoints (`stash-item`, `retrieve-item`) are still supported but consume the same daily transfer allowance
 	- Retrieved items still respect carry-capacity limits
 	- Settlement inputs support alias formats such as `market-district`, `market_district`, or `Market District`
 

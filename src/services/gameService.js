@@ -34,6 +34,8 @@ const SETTLEMENTS = [
 const EVENT_COMMODITY_NAMES = ['water', 'food', 'chems', 'scrap', 'ammo'];
 const CURRENT_SCHEMA_VERSION = 2;
 const MAX_SAFE_GAME_NUMBER = Number.MAX_SAFE_INTEGER;
+// Allow a full round-trip transaction that can touch every commodity once per direction.
+const MAX_HIDEOUT_TRANSACTION_OPERATIONS = Math.max(2, Object.keys(COMMODITY_BASE_PRICES).length * 2);
 
 let randomNumberGenerator = Math.random;
 let gameplayLoggingEnabled = parseBooleanFlag(process.env.GAMEPLAY_LOGS);
@@ -158,6 +160,14 @@ function ensureInventoryFields(game) {
 function ensureHideoutFields(game) {
   if (!game.hideouts || typeof game.hideouts !== 'object' || Array.isArray(game.hideouts)) {
     game.hideouts = {};
+  }
+}
+
+function ensureHideoutTransactionFields(game) {
+  const transactionDay = Number(game.lastHideoutTransactionDay);
+
+  if (!Number.isInteger(transactionDay) || transactionDay < 0) {
+    game.lastHideoutTransactionDay = 0;
   }
 }
 
@@ -319,6 +329,7 @@ function normalizeGameState(game) {
   ensureRankProgressFields(game);
   ensureInventoryFields(game);
   ensureHideoutFields(game);
+  ensureHideoutTransactionFields(game);
   ensureEventFields(game);
   ensureCombatFields(game);
   normalizeMarketAvailabilityMap(game);
@@ -373,6 +384,19 @@ function getEncounterLockError(game) {
     error: 'bad-request',
     message: `You must resolve the active ${typeLabel} encounter before taking other actions.`
   };
+}
+
+function getHideoutTransactionClosedError(game) {
+  const day = Number(game.day || 1);
+
+  return {
+    error: 'conflict',
+    message: `Hideout transactions are closed for day ${day}. Advance the day before transferring items again.`
+  };
+}
+
+function isHideoutTransactionClosedForDay(game) {
+  return Number(game.lastHideoutTransactionDay || 0) === Number(game.day || 1);
 }
 
 function getRumorReliabilityForHighestRank(game) {
@@ -896,6 +920,266 @@ function findInventoryItem(game, itemName) {
 function findCommodityStack(collection, itemName) {
   const normalizedName = String(itemName || '').trim().toLowerCase();
   return collection.find((item) => String(item.itemName || '').toLowerCase() === normalizedName);
+}
+
+function cloneCommodityCollection(collection) {
+  if (!Array.isArray(collection)) {
+    return [];
+  }
+
+  return collection
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => ({ ...item }));
+}
+
+function cloneHideoutsMap(hideouts) {
+  if (!hideouts || typeof hideouts !== 'object' || Array.isArray(hideouts)) {
+    return {};
+  }
+
+  const cloned = {};
+
+  for (const [settlement, items] of Object.entries(hideouts)) {
+    cloned[settlement] = cloneCommodityCollection(items);
+  }
+
+  return cloned;
+}
+
+function getHideoutItemsBySettlementFromMap(hideouts, settlement) {
+  if (!hideouts[settlement] || !Array.isArray(hideouts[settlement])) {
+    hideouts[settlement] = [];
+  }
+
+  return hideouts[settlement];
+}
+
+function applyStashOperation(workingState, location, itemName, quantity) {
+  const inventoryItem = findInventoryItem({ inventory: workingState.inventory }, itemName);
+
+  if (!inventoryItem || inventoryItem.quantity < quantity) {
+    return {
+      error: 'bad-request',
+      message: `Operation failed: not enough quantity in inventory to stash ${itemName}.`
+    };
+  }
+
+  const hideoutItems = getHideoutItemsBySettlementFromMap(workingState.hideouts, location);
+  const hideoutStack = findCommodityStack(hideoutItems, itemName);
+  const movedAverage = Number(inventoryItem.avgPurchasePrice ?? inventoryItem.value ?? 0);
+
+  if (hideoutStack) {
+    const nextAverage = calculateWeightedAverageUnitPrice(
+      hideoutStack.quantity,
+      hideoutStack.avgPurchasePrice ?? hideoutStack.value,
+      quantity,
+      movedAverage
+    );
+
+    hideoutStack.quantity += quantity;
+    hideoutStack.avgPurchasePrice = nextAverage;
+    hideoutStack.value = nextAverage;
+    hideoutStack.sellValue = nextAverage;
+  } else {
+    hideoutItems.push({
+      itemName,
+      quantity,
+      avgPurchasePrice: movedAverage,
+      value: movedAverage,
+      sellValue: movedAverage
+    });
+  }
+
+  inventoryItem.quantity -= quantity;
+
+  if (inventoryItem.quantity <= 0) {
+    workingState.inventory = workingState.inventory.filter((item) => item !== inventoryItem);
+  }
+
+  return null;
+}
+
+function applyRetrieveOperation(workingState, game, location, itemName, quantity) {
+  const currentUnits = getInventoryItemUnits({ inventory: workingState.inventory });
+  const capacity = Number(game.carryCapacity || getCarryCapacity(game.rank));
+
+  if (currentUnits + quantity > capacity) {
+    return {
+      error: 'bad-request',
+      message: `Operation failed: not enough carry space. Capacity ${capacity}, currently carrying ${currentUnits}.`
+    };
+  }
+
+  const hideoutItems = getHideoutItemsBySettlementFromMap(workingState.hideouts, location);
+  const hideoutStack = findCommodityStack(hideoutItems, itemName);
+
+  if (!hideoutStack || hideoutStack.quantity < quantity) {
+    return {
+      error: 'bad-request',
+      message: `Operation failed: not enough quantity in hideout to retrieve ${itemName}.`
+    };
+  }
+
+  const inventoryItem = findInventoryItem({ inventory: workingState.inventory }, itemName);
+  const movedAverage = Number(hideoutStack.avgPurchasePrice ?? hideoutStack.value ?? 0);
+
+  if (inventoryItem) {
+    const nextAverage = calculateWeightedAverageUnitPrice(
+      inventoryItem.quantity,
+      inventoryItem.avgPurchasePrice ?? inventoryItem.value,
+      quantity,
+      movedAverage
+    );
+
+    inventoryItem.quantity += quantity;
+    inventoryItem.avgPurchasePrice = nextAverage;
+    inventoryItem.value = nextAverage;
+    inventoryItem.sellValue = nextAverage;
+  } else {
+    workingState.inventory.push({
+      itemName,
+      quantity,
+      avgPurchasePrice: movedAverage,
+      value: movedAverage,
+      sellValue: movedAverage
+    });
+  }
+
+  hideoutStack.quantity -= quantity;
+
+  if (hideoutStack.quantity <= 0) {
+    workingState.hideouts[location] = hideoutItems.filter((item) => item !== hideoutStack);
+  }
+
+  return null;
+}
+
+function validateHideoutTransactionOperations(operations) {
+  if (!Array.isArray(operations) || operations.length === 0) {
+    return {
+      error: 'bad-request',
+      message: 'operations must be a non-empty array.'
+    };
+  }
+
+  if (operations.length > MAX_HIDEOUT_TRANSACTION_OPERATIONS) {
+    return {
+      error: 'bad-request',
+      message: `operations must include at most ${MAX_HIDEOUT_TRANSACTION_OPERATIONS} entries.`
+    };
+  }
+
+  const normalizedOperations = [];
+
+  for (let index = 0; index < operations.length; index += 1) {
+    const operation = operations[index];
+
+    if (!operation || typeof operation !== 'object' || Array.isArray(operation)) {
+      return {
+        error: 'bad-request',
+        message: `operations[${index}] must be an object.`
+      };
+    }
+
+    const action = String(operation.action || '').trim().toLowerCase();
+    const itemName = String(operation.itemName || '').trim().toLowerCase();
+    const quantity = Number(operation.quantity);
+
+    if (!['stash', 'retrieve'].includes(action)) {
+      return {
+        error: 'bad-request',
+        message: `operations[${index}].action must be either "stash" or "retrieve".`
+      };
+    }
+
+    if (!itemName) {
+      return {
+        error: 'bad-request',
+        message: `operations[${index}].itemName is required.`
+      };
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return {
+        error: 'bad-request',
+        message: `operations[${index}].quantity must be a positive integer.`
+      };
+    }
+
+    normalizedOperations.push({ action, itemName, quantity });
+  }
+
+  return { operations: normalizedOperations };
+}
+
+async function runHideoutTransaction(gameId, operations, options = {}) {
+  const loaded = await loadActiveGame(gameId);
+
+  if (loaded.error) {
+    return loaded;
+  }
+
+  const game = loaded.game;
+
+  if (game.currentEncounter) {
+    return getEncounterLockError(game);
+  }
+
+  if (isHideoutTransactionClosedForDay(game)) {
+    return getHideoutTransactionClosedError(game);
+  }
+
+  const validated = validateHideoutTransactionOperations(operations);
+
+  if (validated.error) {
+    return validated;
+  }
+
+  const location = resolveSettlement(game.location) || SETTLEMENTS[0];
+  const workingState = {
+    inventory: cloneCommodityCollection(game.inventory),
+    hideouts: cloneHideoutsMap(game.hideouts)
+  };
+  const appliedOperations = [];
+
+  for (const operation of validated.operations) {
+    const error = operation.action === 'stash'
+      ? applyStashOperation(workingState, location, operation.itemName, operation.quantity)
+      : applyRetrieveOperation(workingState, game, location, operation.itemName, operation.quantity);
+
+    if (error) {
+      return error;
+    }
+
+    appliedOperations.push({
+      action: operation.action,
+      location,
+      itemName: operation.itemName,
+      quantity: operation.quantity
+    });
+  }
+
+  game.inventory = workingState.inventory;
+  game.hideouts = workingState.hideouts;
+  game.lastHideoutTransactionDay = Number(game.day || 1);
+
+  await saveGame(game);
+
+  if (typeof options.logEventName === 'string' && options.logEventName.trim()) {
+    gameplayLog(options.logEventName, {
+      gameId: game.id,
+      location,
+      operations: appliedOperations
+    });
+  }
+
+  return {
+    game,
+    transfer: {
+      location,
+      operations: appliedOperations
+    }
+  };
 }
 
 function upsertInventoryCommodity(game, itemName, quantity, unitValue) {
@@ -2745,178 +3029,57 @@ async function dumpItem(gameId, itemName, quantity) {
 }
 
 async function stashItem(gameId, itemName, quantity) {
-  const loaded = await loadActiveGame(gameId);
+  const result = await runHideoutTransaction(
+    gameId,
+    [{ action: 'stash', itemName, quantity }],
+    { logEventName: 'transfer.stash' }
+  );
 
-  if (loaded.error) {
-    return loaded;
+  if (result.error) {
+    return result;
   }
 
-  const game = loaded.game;
-
-  if (game.currentEncounter) {
-    return getEncounterLockError(game);
-  }
-
-  const normalizedItemName = String(itemName || '').trim().toLowerCase();
-  const requestedQuantity = Number(quantity);
-
-  if (!normalizedItemName) {
-    return { error: 'bad-request', message: 'itemName is required.' };
-  }
-
-  if (!Number.isInteger(requestedQuantity) || requestedQuantity <= 0) {
-    return { error: 'bad-request', message: 'quantity must be a positive integer.' };
-  }
-
-  const inventoryItem = findInventoryItem(game, normalizedItemName);
-
-  if (!inventoryItem || inventoryItem.quantity < requestedQuantity) {
-    return { error: 'bad-request', message: 'Not enough quantity in inventory to stash.' };
-  }
-
-  const hideoutItems = getActiveHideoutItems(game);
-  const hideoutStack = findCommodityStack(hideoutItems, normalizedItemName);
-  const movedAverage = Number(inventoryItem.avgPurchasePrice ?? inventoryItem.value ?? 0);
-
-  if (hideoutStack) {
-    const nextAverage = calculateWeightedAverageUnitPrice(
-      hideoutStack.quantity,
-      hideoutStack.avgPurchasePrice ?? hideoutStack.value,
-      requestedQuantity,
-      movedAverage
-    );
-
-    hideoutStack.quantity += requestedQuantity;
-    hideoutStack.avgPurchasePrice = nextAverage;
-    hideoutStack.value = nextAverage;
-    hideoutStack.sellValue = nextAverage;
-  } else {
-    hideoutItems.push({
-      itemName: normalizedItemName,
-      quantity: requestedQuantity,
-      avgPurchasePrice: movedAverage,
-      value: movedAverage,
-      sellValue: movedAverage
-    });
-  }
-
-  inventoryItem.quantity -= requestedQuantity;
-
-  if (inventoryItem.quantity <= 0) {
-    game.inventory = game.inventory.filter((item) => item !== inventoryItem);
-  }
-
-  await saveGame(game);
-
-  gameplayLog('transfer.stash', {
-    gameId: game.id,
-    location: game.location,
-    itemName: normalizedItemName,
-    quantity: requestedQuantity
-  });
+  const operation = result.transfer.operations[0];
 
   return {
-    game,
+    game: result.game,
     transfer: {
-      action: 'stash',
-      location: game.location,
-      itemName: normalizedItemName,
-      quantity: requestedQuantity
+      action: operation.action,
+      location: operation.location,
+      itemName: operation.itemName,
+      quantity: operation.quantity
     }
   };
 }
 
 async function retrieveItem(gameId, itemName, quantity) {
-  const loaded = await loadActiveGame(gameId);
+  const result = await runHideoutTransaction(
+    gameId,
+    [{ action: 'retrieve', itemName, quantity }],
+    { logEventName: 'transfer.retrieve' }
+  );
 
-  if (loaded.error) {
-    return loaded;
+  if (result.error) {
+    return result;
   }
 
-  const game = loaded.game;
-
-  if (game.currentEncounter) {
-    return getEncounterLockError(game);
-  }
-
-  const normalizedItemName = String(itemName || '').trim().toLowerCase();
-  const requestedQuantity = Number(quantity);
-
-  if (!normalizedItemName) {
-    return { error: 'bad-request', message: 'itemName is required.' };
-  }
-
-  if (!Number.isInteger(requestedQuantity) || requestedQuantity <= 0) {
-    return { error: 'bad-request', message: 'quantity must be a positive integer.' };
-  }
-
-  const currentUnits = getInventoryItemUnits(game);
-  const capacity = Number(game.carryCapacity || getCarryCapacity(game.rank));
-
-  if (currentUnits + requestedQuantity > capacity) {
-    return {
-      error: 'bad-request',
-      message: `Not enough carry space. Capacity ${capacity}, currently carrying ${currentUnits}.`
-    };
-  }
-
-  const hideoutItems = getActiveHideoutItems(game);
-  const hideoutStack = findCommodityStack(hideoutItems, normalizedItemName);
-
-  if (!hideoutStack || hideoutStack.quantity < requestedQuantity) {
-    return { error: 'bad-request', message: 'Not enough quantity in hideout to retrieve.' };
-  }
-
-  const inventoryItem = findInventoryItem(game, normalizedItemName);
-  const movedAverage = Number(hideoutStack.avgPurchasePrice ?? hideoutStack.value ?? 0);
-
-  if (inventoryItem) {
-    const nextAverage = calculateWeightedAverageUnitPrice(
-      inventoryItem.quantity,
-      inventoryItem.avgPurchasePrice ?? inventoryItem.value,
-      requestedQuantity,
-      movedAverage
-    );
-
-    inventoryItem.quantity += requestedQuantity;
-    inventoryItem.avgPurchasePrice = nextAverage;
-    inventoryItem.value = nextAverage;
-    inventoryItem.sellValue = nextAverage;
-  } else {
-    game.inventory.push({
-      itemName: normalizedItemName,
-      quantity: requestedQuantity,
-      avgPurchasePrice: movedAverage,
-      value: movedAverage,
-      sellValue: movedAverage
-    });
-  }
-
-  hideoutStack.quantity -= requestedQuantity;
-
-  if (hideoutStack.quantity <= 0) {
-    const locationKey = String(game.location || '').trim().toLowerCase();
-    game.hideouts[locationKey] = hideoutItems.filter((item) => item !== hideoutStack);
-  }
-
-  await saveGame(game);
-
-  gameplayLog('transfer.retrieve', {
-    gameId: game.id,
-    location: game.location,
-    itemName: normalizedItemName,
-    quantity: requestedQuantity
-  });
+  const operation = result.transfer.operations[0];
 
   return {
-    game,
+    game: result.game,
     transfer: {
-      action: 'retrieve',
-      location: game.location,
-      itemName: normalizedItemName,
-      quantity: requestedQuantity
+      action: operation.action,
+      location: operation.location,
+      itemName: operation.itemName,
+      quantity: operation.quantity
     }
   };
+}
+
+async function runHideoutTransferTransaction(gameId, operations) {
+  return runHideoutTransaction(gameId, operations, {
+    logEventName: 'transfer.transaction'
+  });
 }
 
 async function getHideout(gameId, settlement) {
@@ -3041,6 +3204,7 @@ module.exports = {
   dumpItem,
   stashItem,
   retrieveItem,
+  runHideoutTransferTransaction,
   getEncounter,
   resolveCombat,
   equipWeapon,
