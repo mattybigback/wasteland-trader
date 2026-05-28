@@ -30,20 +30,25 @@ Run phase-specific suites:
 npm run test:phase1
 npm run test:phase2
 npm run test:future
+npm run test:e2e
+npm run test:mechanisms
 ```
 
 Run Phase 5 suites directly:
 
 ```bash
-docker compose exec app node --test test/phase5-future.test.js test/phase5-negative.test.js
+docker compose exec app node --test test/hardening-determinism.test.js
 ```
 
-Test files are organized by phase:
-- `test/phase1.test.js` and `test/phase1-negative.test.js`
-- `test/phase2.test.js` and `test/phase2-negative.test.js`
-- `test/phase3-future.test.js` and `test/phase3-negative.test.js` (implemented Phase 3 coverage)
-- `test/phase4-future.test.js` and `test/phase4-negative.test.js` (implemented Phase 4 coverage)
-- `test/phase5-future.test.js` and `test/phase5-negative.test.js` (implemented Phase 5 foundation/hardening/determinism coverage for migration, long-run seeded simulation stability, balance-boundary assertions, error-contract shape checks, and overflow guardrails)
+Test files are organized by function/mechanism:
+- `test/debt-progression.test.js` (migrated from Phase 1 debt/day-progression coverage)
+- `test/contracts-negative.test.js` (migrated contract and overflow guard coverage from Phase 1 and Phase 5 negative suites)
+- `test/economy-market.test.js` (migrated from Phase 2 market/economy coverage)
+- `test/inventory-hideouts.test.js` (migrated from Phase 2 inventory/hideouts coverage)
+- `test/events-history.test.js` and `test/events-history-negative.test.js` (migrated Phase 3 events/market-history coverage)
+- `test/combat-encounters.test.js` and `test/combat-encounters-negative.test.js` (migrated Phase 4 combat/encounter coverage)
+- `test/hardening-determinism.test.js` (migrated Phase 5 foundation/hardening/determinism coverage for migration, long-run seeded simulation stability, and balance-boundary assertions)
+- `test/e2e-gameplay.test.js` (cross-system end-to-end scenarios for trading, encounters/combat locks, and full lifecycle endgame behavior)
 
 ## Dockerized development
 
@@ -189,7 +194,7 @@ Expected normalization outcomes:
 
 Deterministic replay for balancing/hardening is available in test harnesses via seeded RNG injection.
 
-- Use `buildSequenceRng(values, fallback)` in [test/phase5-future.test.js](test/phase5-future.test.js)
+- Use `buildSequenceRng(values, fallback)` in [test/helpers/rng.js](test/helpers/rng.js) and [test/hardening-determinism.test.js](test/hardening-determinism.test.js)
 - Inject through `gameService.__setRandomNumberGeneratorForTests(...)`
 - Re-run the same sequence across multiple games and assert identical snapshots
 

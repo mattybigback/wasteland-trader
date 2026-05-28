@@ -39,8 +39,8 @@ This document captures the implementation plan for the single-player, turn-based
 - `POST /games/:id/debt` (`mode: quote | pay`)
 
 ### Test Coverage
-- `test/phase1.test.js`: positive flow coverage (day maintenance, healing, debt quote/pay math).
-- `test/phase1-negative.test.js`: guard coverage (invalid heal payloads, invalid debt requests, insufficient repayment caps, ended-game lockout for day actions).
+- `test/debt-progression.test.js`: coverage for day maintenance, healing, debt quote/pay math, and debt repayment constraints.
+- `test/contracts-negative.test.js`: contract/guard coverage for invalid heal payloads and ended-game lockout for day actions.
 
 ## Phase 2: Economy and Progression (Completed)
 
@@ -67,8 +67,8 @@ This document captures the implementation plan for the single-player, turn-based
 - `POST /games/:id/actions/retrieve-item`
 
 ### Test Coverage
-- `test/phase2.test.js`: positive flow coverage (weighted average inventory pricing, over-capacity block after demotion, stash/retrieve with settlement aliases, item availability day-1 fallback, availability rolling on sleep/travel, buy/sell rejection when unavailable).
-- `test/phase2-negative.test.js`: guard coverage (unknown commodities/settlements, hideout filter validation, insufficient stash quantity, ended-game lockout for market actions).
+- `test/economy-market.test.js`: market/economy coverage (weighted average inventory pricing, item availability day-1 fallback, availability rolling on sleep/travel, buy/sell rejection when unavailable, unknown commodity guard, ended-game market lockout).
+- `test/inventory-hideouts.test.js`: inventory/hideout coverage (over-capacity block after demotion, stash/retrieve with settlement aliases, hideout filter validation, unknown settlement alias and insufficient stash quantity guards).
 
 ## Phase 3: Dynamic World Events (Completed)
 
@@ -93,7 +93,7 @@ This document captures the implementation plan for the single-player, turn-based
 - Market-history responses default to the last 10 entries unless a `limit` is provided.
 
 ### Test Coverage
-- `test/phase3-future.test.js` contains deterministic Phase 3 integration tests for:
+- `test/events-history.test.js` contains deterministic Phase 3 integration tests for:
 	- event generation on sleep/travel,
 	- persisted history retrieval,
 	- settlement filtering,
@@ -102,7 +102,7 @@ This document captures the implementation plan for the single-player, turn-based
 	- scarcity/crash pricing effects,
 	- market history snapshots and trend indicators,
 	- all new event types (weapon-damage, ammo-stash, friendly-encounter, rival-encounter, nighttime-robbery, pickpocket, settlement-unrest, supply-shortage).
-- `test/phase3-negative.test.js` contains guard/validation tests for:
+- `test/events-history-negative.test.js` contains guard/validation tests for:
 	- events endpoint: invalid day/settlement/limit filters with correct error responses,
 	- market-history endpoint: invalid settlement/item/fromDay/toDay/limit filters, day window validation, and boundary checks.
 
@@ -161,8 +161,8 @@ This document captures the implementation plan for the single-player, turn-based
 - Loot drops populate `unequippedGear`; equip actions swap into `equippedWeapon`/`equippedArmor`.
 
 ### Test Coverage
-- `test/phase4-future.test.js`: positive flow coverage for encounter generation, combat win/run branches, debt-collector pay flow, and equip flows.
-- `test/phase4-negative.test.js`: guard coverage for invalid combat actions, missing encounters, invalid debt-collector actions, and invalid gear/equipment requests.
+- `test/combat-encounters.test.js`: positive flow coverage for encounter generation, combat win/run branches, debt-collector pay flow, and equip flows.
+- `test/combat-encounters-negative.test.js`: guard coverage for invalid combat actions, missing encounters, invalid debt-collector actions, and invalid gear/equipment requests.
 
 ## Phase 5: Balance, Content, and Hardening (Completed - Hardening MVP)
 
@@ -179,17 +179,18 @@ This document captures the implementation plan for the single-player, turn-based
 - Stable versioned save schema.
 
 ### Planned Tests
-- `test/phase5-future.test.js` now includes implemented foundation coverage for:
+- `test/hardening-determinism.test.js` now includes implemented foundation coverage for:
 	- schema-version persistence on new game creation,
 	- in-place schema migration and legacy market-availability canonicalization,
 	- deterministic seeded simulation repeatability (short-run and long-run fixtures),
 	- baseline market-price multiplier assertions across settlements,
 	- balance-config boundary assertions for economy/event/combat tuning values,
 	- API bad-request contract compatibility.
-- `test/phase5-negative.test.js` includes implemented hardening coverage for:
+- `test/contracts-negative.test.js` includes implemented hardening coverage for:
 	- 400/404/409 error-contract response shapes,
 	- buy/sell overflow transaction rejection,
 	- sell-gear cash-overflow rejection.
+- `test/e2e-gameplay.test.js` provides deterministic cross-system end-to-end scenarios for trading/debt workflows, encounter lock and combat resolution unlocks, and endgame lockout behavior.
 
 ### Completed for Phase 5 (Foundation)
 - Added `schemaVersion` to persisted game state defaults.

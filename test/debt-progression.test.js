@@ -3,27 +3,16 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const TEST_DATA_DIR = path.resolve(process.cwd(), 'data', 'games-test-phase1');
+const TEST_DATA_DIR = path.resolve(process.cwd(), 'data', 'games-test-debt-progression');
 process.env.GAME_SESSIONS_DIR = TEST_DATA_DIR;
 
 const request = require('supertest');
 const { app } = require('../src/server');
 const gameService = require('../src/services/gameService');
-
-async function resetTestDataDir() {
-  await fs.rm(TEST_DATA_DIR, { recursive: true, force: true });
-  await fs.mkdir(TEST_DATA_DIR, { recursive: true });
-}
-
-async function createGame() {
-  const response = await request(app).post('/games').send({});
-  assert.equal(response.status, 201);
-  assert.ok(response.body.id);
-  return response.body;
-}
+const { resetTestDataDir, createGame } = require('./helpers/setup');
 
 beforeEach(async () => {
-  await resetTestDataDir();
+  await resetTestDataDir(TEST_DATA_DIR);
   gameService.__setRandomNumberGeneratorForTests(() => 0.99);
 });
 
@@ -32,8 +21,8 @@ after(async () => {
   await fs.rm(TEST_DATA_DIR, { recursive: true, force: true });
 });
 
-test('Phase 1: sleep advances day and applies daily maintenance', async () => {
-  const game = await createGame();
+test('Debt/progression: sleep advances day and applies daily maintenance', async () => {
+  const game = await createGame(request, app, assert);
 
   const sleepResponse = await request(app)
     .post(`/games/${game.id}/actions/sleep`)
@@ -47,8 +36,8 @@ test('Phase 1: sleep advances day and applies daily maintenance', async () => {
   assert.equal(sleepResponse.body.status, 'active');
 });
 
-test('Phase 1: heal restores health and costs caps without advancing day', async () => {
-  const game = await createGame();
+test('Debt/progression: heal restores health and costs caps without advancing day', async () => {
+  const game = await createGame(request, app, assert);
 
   const patched = await request(app)
     .patch(`/games/${game.id}`)
@@ -66,8 +55,8 @@ test('Phase 1: heal restores health and costs caps without advancing day', async
   assert.equal(healResponse.body.cash, 1600);
 });
 
-test('Phase 1: debt quote/pay workflow returns consistent repayment math', async () => {
-  const game = await createGame();
+test('Debt/progression: debt quote/pay workflow returns consistent repayment math', async () => {
+  const game = await createGame(request, app, assert);
 
   const quoteResponse = await request(app)
     .post(`/games/${game.id}/debt`)
@@ -91,4 +80,26 @@ test('Phase 1: debt quote/pay workflow returns consistent repayment math', async
   assert.equal(payResponse.body.repayment.totalCost, quoteResponse.body.totalCost);
   assert.equal(payResponse.body.repayment.remainingDebt, 500);
   assert.equal(payResponse.body.game.cash, 2000 - quoteResponse.body.totalCost);
+});
+
+test('Debt/progression: debt mode is required and validated', async () => {
+  const game = await createGame(request, app, assert);
+
+  const response = await request(app)
+    .post(`/games/${game.id}/debt`)
+    .send({ amount: 100 });
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /mode must be either/i);
+});
+
+test('Debt/progression: debt payment rejects insufficient caps for repayment total', async () => {
+  const game = await createGame(request, app, assert);
+
+  const response = await request(app)
+    .post(`/games/${game.id}/debt`)
+    .send({ mode: 'pay', amount: 5000 });
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /not enough caps/i);
 });

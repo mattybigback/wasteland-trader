@@ -3,27 +3,17 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const TEST_DATA_DIR = path.resolve(process.cwd(), 'data', 'games-test-phase5-negative');
+const TEST_DATA_DIR = path.resolve(process.cwd(), 'data', 'games-test-contracts-negative');
 process.env.GAME_SESSIONS_DIR = TEST_DATA_DIR;
 
 const request = require('supertest');
 const { app } = require('../src/server');
 const gameService = require('../src/services/gameService');
-
-async function resetTestDataDir() {
-  await fs.rm(TEST_DATA_DIR, { recursive: true, force: true });
-  await fs.mkdir(TEST_DATA_DIR, { recursive: true });
-}
-
-async function createGame() {
-  const response = await request(app).post('/games').send({});
-  assert.equal(response.status, 201);
-  return response.body;
-}
+const { resetTestDataDir, createGame } = require('./helpers/setup');
 
 beforeEach(async () => {
-  await resetTestDataDir();
-  gameService.__resetRandomNumberGeneratorForTests();
+  await resetTestDataDir(TEST_DATA_DIR);
+  gameService.__setRandomNumberGeneratorForTests(() => 0.99);
 });
 
 afterEach(() => {
@@ -34,7 +24,36 @@ after(async () => {
   await fs.rm(TEST_DATA_DIR, { recursive: true, force: true });
 });
 
-test('Phase 5 negative: 404 contract returns only error for unknown game id', async () => {
+test('Contracts negative: heal rejects invalid percentage payload', async () => {
+  const game = await createGame(request, app, assert);
+
+  const response = await request(app)
+    .post(`/games/${game.id}/actions/heal`)
+    .send({ percentage: 15 });
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /multiple of 10/i);
+});
+
+test('Contracts negative: ended game blocks additional sleep action', async () => {
+  const game = await createGame(request, app, assert);
+
+  const setupResponse = await request(app)
+    .patch(`/games/${game.id}`)
+    .send({ maxDays: 1 });
+
+  assert.equal(setupResponse.status, 200);
+  assert.equal(setupResponse.body.status, 'ended');
+
+  const sleepResponse = await request(app)
+    .post(`/games/${game.id}/actions/sleep`)
+    .send({});
+
+  assert.equal(sleepResponse.status, 409);
+  assert.match(sleepResponse.body.error, /already ended/i);
+});
+
+test('Contracts negative: 404 contract returns only error for unknown game id', async () => {
   const response = await request(app)
     .post('/games/unknown-id/actions/sleep')
     .send({});
@@ -44,8 +63,8 @@ test('Phase 5 negative: 404 contract returns only error for unknown game id', as
   assert.equal(response.body.game, undefined);
 });
 
-test('Phase 5 negative: 409 contract includes game payload for ended game actions', async () => {
-  const game = await createGame();
+test('Contracts negative: 409 contract includes game payload for ended game actions', async () => {
+  const game = await createGame(request, app, assert);
 
   const patchResponse = await request(app)
     .patch(`/games/${game.id}`)
@@ -64,8 +83,8 @@ test('Phase 5 negative: 409 contract includes game payload for ended game action
   assert.equal(response.body.game.status, 'ended');
 });
 
-test('Phase 5 negative: 400 contract returns error string and no game object', async () => {
-  const game = await createGame();
+test('Contracts negative: 400 contract returns error string and no game object', async () => {
+  const game = await createGame(request, app, assert);
 
   const response = await request(app)
     .post(`/games/${game.id}/actions/heal`)
@@ -76,8 +95,8 @@ test('Phase 5 negative: 400 contract returns error string and no game object', a
   assert.equal(response.body.game, undefined);
 });
 
-test('Phase 5 negative: buy-item rejects overflow transaction size', async () => {
-  const game = await createGame();
+test('Contracts negative: buy-item rejects overflow transaction size', async () => {
+  const game = await createGame(request, app, assert);
 
   const response = await request(app)
     .post(`/games/${game.id}/actions/buy-item`)
@@ -87,8 +106,8 @@ test('Phase 5 negative: buy-item rejects overflow transaction size', async () =>
   assert.match(response.body.error, /transaction size is too large/i);
 });
 
-test('Phase 5 negative: sell-item rejects overflow transaction size', async () => {
-  const game = await createGame();
+test('Contracts negative: sell-item rejects overflow transaction size', async () => {
+  const game = await createGame(request, app, assert);
 
   const seedResponse = await request(app)
     .patch(`/games/${game.id}`)
@@ -120,8 +139,8 @@ test('Phase 5 negative: sell-item rejects overflow transaction size', async () =
   assert.match(response.body.error, /transaction size is too large/i);
 });
 
-test('Phase 5 negative: sell-gear rejects cash overflow', async () => {
-  const game = await createGame();
+test('Contracts negative: sell-gear rejects cash overflow', async () => {
+  const game = await createGame(request, app, assert);
 
   const seedResponse = await request(app)
     .patch(`/games/${game.id}`)

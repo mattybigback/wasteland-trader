@@ -7,10 +7,12 @@
   "scripts": {
     "dev": "nodemon --watch src --ext js,json --signal SIGTERM src/server.js",
     "start": "node src/server.js",
-    "test": "node --test",
-    "test:phase1": "node --test test/phase1*.test.js",
-    "test:phase2": "node --test test/phase2*.test.js",
-    "test:future": "node --test test/phase3-future.test.js test/phase4-future.test.js test/phase5-future.test.js"
+    "test": "node --test test/*.test.js",
+    "test:phase1": "node --test test/debt-progression.test.js test/contracts-negative.test.js",
+    "test:phase2": "node --test test/economy-market.test.js test/inventory-hideouts.test.js",
+    "test:future": "node --test test/events-history.test.js test/events-history-negative.test.js test/combat-encounters.test.js test/combat-encounters-negative.test.js test/hardening-determinism.test.js",
+    "test:e2e": "node --test test/e2e-gameplay.test.js",
+    "test:mechanisms": "node --test test/debt-progression.test.js test/contracts-negative.test.js test/economy-market.test.js test/inventory-hideouts.test.js test/events-history.test.js test/events-history-negative.test.js test/combat-encounters.test.js test/combat-encounters-negative.test.js test/hardening-determinism.test.js"
   },
   "engines": {
     "node": ">=22"
