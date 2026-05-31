@@ -1,0 +1,10 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:3000
+    container_name: wasteland-trader-frontend-dev
+    ports:
+      - "4173:80"

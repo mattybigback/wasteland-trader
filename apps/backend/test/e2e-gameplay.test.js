@@ -44,8 +44,11 @@ test('E2E gameplay: trading, hideouts, travel, and debt repayment work together'
   assert.equal(hideout.body.items[0].itemName, 'water');
   assert.equal(hideout.body.items[0].quantity, 2);
 
-  const retrieveWater = await api.retrieve('water', 1);
-  assertStatus(assert, retrieveWater, 200);
+  const rebalanceWater = await api.stashTransaction([
+    { action: 'stash', itemName: 'water', quantity: 1 },
+    { action: 'retrieve', itemName: 'water', quantity: 1 }
+  ]);
+  assertStatus(assert, rebalanceWater, 409);
 
   const travel = await api.travel('vault refuge');
   assertStatus(assert, travel, 200);

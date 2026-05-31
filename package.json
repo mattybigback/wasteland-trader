@@ -1,27 +1,30 @@
 {
   "name": "wasteland-trader",
   "version": "0.1.0",
-  "description": "Single-player turn-based trading game backend",
+  "description": "Monorepo for Wasteland Trader frontend and backend",
   "private": true,
-  "main": "src/server.js",
+  "workspaces": [
+    "apps/backend",
+    "apps/frontend"
+  ],
   "scripts": {
-    "dev": "nodemon --watch src --ext js,json --signal SIGTERM src/server.js",
-    "start": "node src/server.js",
-    "test": "node --test test/*.test.js",
-    "test:phase1": "node --test test/debt-progression.test.js test/contracts-negative.test.js",
-    "test:phase2": "node --test test/economy-market.test.js test/inventory-hideouts.test.js",
-    "test:future": "node --test test/events-history.test.js test/events-history-negative.test.js test/combat-encounters.test.js test/combat-encounters-negative.test.js test/hardening-determinism.test.js",
-    "test:e2e": "node --test test/e2e-gameplay.test.js",
-    "test:mechanisms": "node --test test/debt-progression.test.js test/contracts-negative.test.js test/economy-market.test.js test/inventory-hideouts.test.js test/events-history.test.js test/events-history-negative.test.js test/combat-encounters.test.js test/combat-encounters-negative.test.js test/hardening-determinism.test.js"
+    "backend:dev": "npm run dev --workspace @wasteland/backend",
+    "backend:start": "npm run start --workspace @wasteland/backend",
+    "backend:test": "npm run test --workspace @wasteland/backend",
+    "backend:test:phase1": "npm run test:phase1 --workspace @wasteland/backend",
+    "backend:test:phase2": "npm run test:phase2 --workspace @wasteland/backend",
+    "backend:test:future": "npm run test:future --workspace @wasteland/backend",
+    "backend:test:e2e": "npm run test:e2e --workspace @wasteland/backend",
+    "backend:test:mechanisms": "npm run test:mechanisms --workspace @wasteland/backend",
+    "frontend:dev": "npm run dev --workspace @wasteland/frontend",
+    "frontend:build": "npm run build --workspace @wasteland/frontend",
+    "frontend:preview": "npm run preview --workspace @wasteland/frontend",
+    "compose:backend": "docker compose -f docker-compose.backend.yml up --build",
+    "compose:frontend": "docker compose -f docker-compose.frontend.yml up --build",
+    "compose:full": "docker compose up --build",
+    "compose:down": "docker compose down"
   },
   "engines": {
     "node": ">=22"
-  },
-  "dependencies": {
-    "express": "^5.1.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.10",
-    "supertest": "^7.1.1"
   }
 }

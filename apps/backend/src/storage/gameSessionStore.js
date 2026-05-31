@@ -5,7 +5,7 @@ const { ensureDirectory, readJsonFile, writeJsonFile } = require('./jsonFileStor
 
 const GAME_SESSIONS_DIR = process.env.GAME_SESSIONS_DIR
   ? path.resolve(process.env.GAME_SESSIONS_DIR)
-  : path.resolve(process.cwd(), 'data', 'games');
+  : path.resolve(__dirname, '..', '..', '..', '..', 'data', 'games');
 
 function gameFilePath(gameId) {
   return path.join(GAME_SESSIONS_DIR, `${gameId}.json`);

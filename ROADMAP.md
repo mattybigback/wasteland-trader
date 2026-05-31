@@ -1,12 +1,13 @@
 # Wasteland Trader Roadmap
 
-This document captures the implementation plan for the single-player, turn-based trading game API.
+This document captures the implementation plan for the Wasteland Trader monorepo, including the single-player API and the new frontend client.
 
 ## Goals
 
 - Keep gameplay logic centralized in services so storage can be swapped later.
 - Build features in layers: stable core loop first, then depth systems.
 - Ensure each phase is independently testable through HTTP endpoints.
+- Keep frontend and backend deployable as separate release artifacts.
 
 ## Phase 0: Foundation (Completed)
 
@@ -221,6 +222,29 @@ This document captures the implementation plan for the single-player, turn-based
 - Additional balancing passes (price ranges, scarcity tuning, rank pacing) informed by playtest telemetry.
 - Broader hardening matrix for very large-volume simulation edge cases.
 
+## Phase 6: Monorepo and Frontend Foundation (In Progress)
+
+### Features
+- Split the repository into `apps/backend` and `apps/frontend` workspaces.
+- Preserve backend API behavior while relocating runtime code and tests into the backend workspace.
+- Add a vanilla frontend shell that can create a game session and display returned game state.
+- Provide separate Docker compose entrypoints for backend-only and frontend-only development.
+- Provide a combined root compose file that launches both services together.
+- Prepare the frontend release path as static assets served by nginx.
+
+### Delivered So Far
+- Backend source, tests, and Dockerfile moved under `apps/backend`.
+- Frontend scaffold added under `apps/frontend` with Vite-based local development and nginx release image.
+- Root `package.json` converted to a workspace orchestrator with frontend/backend-specific scripts.
+- Added `docker-compose.backend.yml` and `docker-compose.frontend.yml` alongside the combined root `docker-compose.yml`.
+- Backend storage default remains rooted at the repo-level `data/games` path after the move.
+
+### Remaining
+- Expand the frontend beyond the current session-creation shell into actual game interaction flows.
+- Add shared environment documentation/examples for local and release builds.
+- Decide and implement a release pipeline for separate frontend/backend image publishing.
+- Add CI automation for workspace install, backend tests, frontend build, and combined smoke checks.
+
 ## Cross-Phase Technical Principles
 
 - Keep route handlers thin; place gameplay rules in service layer.
@@ -230,4 +254,4 @@ This document captures the implementation plan for the single-player, turn-based
 
 ## Current Priority
 
-- Plan and prioritize post-roadmap content expansion backlog.
+- Finish the frontend foundation on top of the new monorepo layout, then add release automation for independent frontend/backend artifacts.

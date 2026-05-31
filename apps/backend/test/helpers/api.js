@@ -27,6 +27,9 @@ function buildGameApi(request, app, gameId) {
     retrieve(itemName, quantity) {
       return request(app).post(`/games/${gameId}/actions/retrieve-item`).send({ itemName, quantity });
     },
+    stashTransaction(operations) {
+      return request(app).post(`/games/${gameId}/actions/stash-transaction`).send({ operations });
+    },
     debt(mode, amount) {
       return request(app).post(`/games/${gameId}/debt`).send({ mode, amount });
     },

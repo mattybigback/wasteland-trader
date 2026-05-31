@@ -1,54 +1,71 @@
 # Wasteland Trader
 
-Express.js backend for a single-player, turn-based post-apocalyptic trading game.
+Monorepo for the Wasteland Trader backend API and frontend client.
 
 Disclaimer: this is an experimental, fast-iteration project focused AI experimentation. Expect rough edges.
 
 Roadmap: see `ROADMAP.md` for phased feature planning and status.
 
-Run tests:
+## Repository layout
+
+```text
+apps/
+	backend/   Express API, gameplay logic, tests, backend Dockerfile
+	frontend/  Vanilla Vite frontend, nginx release image, frontend Dockerfile
+data/        Persisted backend game sessions for local/dev container runs
+```
+
+## Workspace commands
+
+Install workspace dependencies:
 
 ```bash
-npm test
+npm install
+```
+
+Run backend tests:
+
+```bash
+npm run backend:test
 ```
 
 Run tests with gameplay logs enabled:
 
 ```bash
-GAMEPLAY_LOGS=1 npm test
+GAMEPLAY_LOGS=1 npm run backend:test
 ```
 
-For Docker-based runs:
+Run backend phase-specific suites:
 
 ```bash
-docker compose exec -e GAMEPLAY_LOGS=1 app npm test
+npm run backend:test:phase1
+npm run backend:test:phase2
+npm run backend:test:future
+npm run backend:test:e2e
+npm run backend:test:mechanisms
 ```
 
-Run phase-specific suites:
+Run frontend dev server locally:
 
 ```bash
-npm run test:phase1
-npm run test:phase2
-npm run test:future
-npm run test:e2e
-npm run test:mechanisms
+npm run frontend:dev
 ```
 
-Run Phase 5 suites directly:
+Build the frontend release bundle locally:
 
 ```bash
-docker compose exec app node --test test/hardening-determinism.test.js
+npm run frontend:build
 ```
 
 Test files are organized by function/mechanism:
-- `test/debt-progression.test.js` (migrated from Phase 1 debt/day-progression coverage)
-- `test/contracts-negative.test.js` (migrated contract and overflow guard coverage from Phase 1 and Phase 5 negative suites)
-- `test/economy-market.test.js` (migrated from Phase 2 market/economy coverage)
-- `test/inventory-hideouts.test.js` (migrated from Phase 2 inventory/hideouts coverage)
-- `test/events-history.test.js` and `test/events-history-negative.test.js` (migrated Phase 3 events/market-history coverage)
-- `test/combat-encounters.test.js` and `test/combat-encounters-negative.test.js` (migrated Phase 4 combat/encounter coverage)
-- `test/hardening-determinism.test.js` (migrated Phase 5 foundation/hardening/determinism coverage for migration, long-run seeded simulation stability, and balance-boundary assertions)
-- `test/e2e-gameplay.test.js` (cross-system end-to-end scenarios for trading, encounters/combat locks, and full lifecycle endgame behavior)
+- `apps/backend/test/debt-progression.test.js` (migrated from Phase 1 debt/day-progression coverage)
+- `apps/backend/test/contracts-negative.test.js` (migrated contract and overflow guard coverage from Phase 1 and Phase 5 negative suites)
+- `apps/backend/test/economy-market.test.js` (migrated from Phase 2 market/economy coverage)
+- `apps/backend/test/inventory-hideouts.test.js` (migrated from Phase 2 inventory/hideouts coverage)
+- `apps/backend/test/events-history.test.js` and `apps/backend/test/events-history-negative.test.js` (migrated Phase 3 events/market-history coverage)
+- `apps/backend/test/combat-encounters.test.js` and `apps/backend/test/combat-encounters-negative.test.js` (migrated Phase 4 combat/encounter coverage)
+- `apps/backend/test/hardening-determinism.test.js` (migrated Phase 5 foundation/hardening/determinism coverage for migration, long-run seeded simulation stability, and balance-boundary assertions)
+- `apps/backend/test/e2e-gameplay.test.js` (cross-system end-to-end scenarios for trading, encounters/combat locks, and full lifecycle endgame behavior)
 
 ## Dockerized development
 
@@ -56,7 +73,19 @@ Requirements:
 - Docker Engine
 - Docker Compose (v2)
 
-Start the dev environment:
+Start backend only:
+
+```bash
+docker compose -f docker-compose.backend.yml up --build
+```
+
+Start frontend only:
+
+```bash
+docker compose -f docker-compose.frontend.yml up --build
+```
+
+Start the full stack:
 
 ```bash
 docker compose up --build
@@ -74,23 +103,55 @@ Stop:
 docker compose down
 ```
 
-Check logs:
+Check backend logs:
 
 ```bash
-docker compose logs -f app
+docker compose logs -f backend
 ```
 
-Health check:
+Check frontend logs:
+
+```bash
+docker compose logs -f frontend
+```
+
+Backend health check:
 
 ```bash
 curl http://localhost:3000/health
 ```
 
-Root endpoint:
+Frontend shell:
+
+```bash
+curl http://localhost:4173/
+```
+
+Backend root endpoint:
 
 ```bash
 curl http://localhost:3000/
 ```
+
+For Docker-based backend test runs:
+
+```bash
+docker compose -f docker-compose.backend.yml run --rm backend npm test
+docker compose -f docker-compose.backend.yml run --rm -e GAMEPLAY_LOGS=1 backend npm test
+```
+
+Run the backend hardening suite directly in Docker:
+
+```bash
+docker compose -f docker-compose.backend.yml run --rm backend node --test test/hardening-determinism.test.js
+```
+
+## Frontend status
+
+- `apps/frontend` is a new vanilla Vite app that talks to the backend through `VITE_API_BASE_URL`.
+- The current shell provides a minimal create-game flow and renders the returned session snapshot.
+- The release container builds static assets and serves them from nginx.
+- The default local browser target is `http://localhost:3000` for the API and `http://localhost:4173` for the frontend.
 
 ## Current API
 
@@ -164,7 +225,7 @@ curl http://localhost:3000/
 - Each game session is stored as a JSON file in `data/games/`.
 - File naming convention: `<uuid>.json`.
 - Route handlers call a game service, which calls a storage module.
-- All file writes are centralized in `writeJsonFile` inside `src/storage/jsonFileStore.js` so the storage engine can be swapped later.
+- All file writes are centralized in `writeJsonFile` inside `apps/backend/src/storage/jsonFileStore.js` so the storage engine can be swapped later.
 - Save schema includes `schemaVersion` (currently `2`) and supports in-place migration on load for legacy saves.
 
 ### Migration Example
@@ -199,7 +260,7 @@ Expected normalization outcomes:
 
 Deterministic replay for balancing/hardening is available in test harnesses via seeded RNG injection.
 
-- Use `buildSequenceRng(values, fallback)` in [test/helpers/rng.js](test/helpers/rng.js) and [test/hardening-determinism.test.js](test/hardening-determinism.test.js)
+- Use `buildSequenceRng(values, fallback)` in `apps/backend/test/helpers/rng.js` and `apps/backend/test/hardening-determinism.test.js`
 - Inject through `gameService.__setRandomNumberGeneratorForTests(...)`
 - Re-run the same sequence across multiple games and assert identical snapshots
 
@@ -284,24 +345,24 @@ Deterministic replay for balancing/hardening is available in test harnesses via 
 
 Tunable game constants are centralized in model config files:
 
-### API Limits ([src/models/apiLimits.js](src/models/apiLimits.js))
+### API Limits (`apps/backend/src/models/apiLimits.js`)
 - `MARKET_HISTORY.defaultReturnLimit`: 10 (number of entries returned by default in market-history queries)
 - `MARKET_HISTORY.maxDayWindow`: 120 (maximum day range allowed in market-history fromDay/toDay queries)
 
-### World Events and Economy ([src/models/worldEvents.js](src/models/worldEvents.js))
+### World Events and Economy (`apps/backend/src/models/worldEvents.js`)
 - `EVENT_PROBABILITIES`: rates for luckyFind, scavengedCache, illness, shakedown, marketRiseSignal, marketDropSignal, weaponDamage, ammoStash, friendlyEncounter, rivalEncounter, nighttimeRobbery, pickpocket, settlementUnrest, supplyShortage
 - `EVENT_SEVERITY_RANGES`: tuning ranges for robbery percentages, settlement unrest shifts, and supply-shortage multipliers
 - `EVENT_REWARD_RANGES`: tuning ranges for ammo stash and friendly encounter loot quantities
 - `RUMOR_RELIABILITY`: rumor accuracy scaling from rank 1 to rank 5 (40% to 90%)
 - `MARKET_MULTIPLIER_RANGES`: price multiplier min/max/fuzz ranges for scarcity and abundance conditions
 
-### Gameplay Settings ([src/models/economy.js](src/models/economy.js))
+### Gameplay Settings (`apps/backend/src/models/economy.js`)
 - `RANK_THRESHOLDS`: caps required per rank tier
 - `CARRY_CAPACITY_BY_RANK`: inventory unit capacity per rank
 - `COMMODITY_BASE_PRICES`: base unit price per commodity type
 - `SETTLEMENT_PRICE_MULTIPLIER`: price variance factor per settlement
 
-### Combat Balance ([src/models/combatBalance.js](src/models/combatBalance.js))
+### Combat Balance (`apps/backend/src/models/combatBalance.js`)
 - `COMBAT_DEFAULTS`: encounter chance, run success, base player attack, debt-collector tuning
 - `RUN_FAIL_DAMAGE`: random damage range when run fails
 - `ENCOUNTER_TEMPLATES`: per-encounter base enemy stats and reward ranges

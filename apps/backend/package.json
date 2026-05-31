@@ -1,0 +1,27 @@
+{
+  "name": "@wasteland/backend",
+  "version": "0.1.0",
+  "description": "Wasteland Trader backend API",
+  "private": true,
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon --watch src --ext js,json --signal SIGTERM src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "test:phase1": "node --test test/debt-progression.test.js test/contracts-negative.test.js",
+    "test:phase2": "node --test test/economy-market.test.js test/inventory-hideouts.test.js",
+    "test:future": "node --test test/events-history.test.js test/events-history-negative.test.js test/combat-encounters.test.js test/combat-encounters-negative.test.js test/hardening-determinism.test.js",
+    "test:e2e": "node --test test/e2e-gameplay.test.js",
+    "test:mechanisms": "node --test test/debt-progression.test.js test/contracts-negative.test.js test/economy-market.test.js test/inventory-hideouts.test.js test/events-history.test.js test/events-history-negative.test.js test/combat-encounters.test.js test/combat-encounters-negative.test.js test/hardening-determinism.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10",
+    "supertest": "^7.1.1"
+  }
+}
