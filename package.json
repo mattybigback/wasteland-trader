@@ -21,6 +21,7 @@
     "frontend:preview": "npm run preview --workspace @wasteland/frontend",
     "compose:backend": "docker compose -f docker-compose.backend.yml up --build",
     "compose:frontend": "docker compose -f docker-compose.frontend.yml up --build",
+    "compose:frontend:dev": "docker compose -f docker-compose.frontend.dev.yml up",
     "compose:full": "docker compose up --build",
     "compose:down": "docker compose down"
   },

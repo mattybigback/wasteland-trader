@@ -48,6 +48,170 @@ body {
   padding: 1rem;
 }
 
+.panel h2 {
+  margin-top: 0;
+}
+
+.events-list {
+  max-height: 140px;
+  overflow: auto;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.events-list p {
+  margin: 0;
+}
+
+.playfield {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.9fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.center-column {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.button-grid {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.two-up {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.one-up {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.data-list,
+.status-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.data-list {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.data-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(56px, 0.5fr) minmax(80px, 0.7fr);
+  align-items: center;
+  gap: 1rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.data-list li.selectable {
+  cursor: pointer;
+}
+
+.data-list li.selectable:hover {
+  background: rgba(166, 70, 38, 0.18);
+}
+
+.data-list li.selected {
+  outline: 2px solid rgba(166, 70, 38, 0.75);
+  background: rgba(166, 70, 38, 0.24);
+}
+
+.data-list li span:nth-child(2) {
+  text-align: center;
+}
+
+.data-list li span:nth-child(3) {
+  text-align: right;
+}
+
+.data-list-header {
+  font-weight: 700;
+  background: rgba(166, 70, 38, 0.16);
+}
+
+.status-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.capacity {
+  margin-top: 0;
+}
+
+.action-feedback {
+  margin: 0.7rem 0 0;
+  font-size: 0.9rem;
+}
+
+.modal[hidden] {
+  display: none;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(33, 23, 15, 0.45);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.modal-panel {
+  width: min(380px, 100%);
+  border-radius: 14px;
+  border: 1px solid rgba(33, 23, 15, 0.3);
+  background: var(--panel);
+  padding: 1rem;
+}
+
+.modal-panel h3 {
+  margin: 0;
+}
+
+.modal-item {
+  margin: 0.65rem 0;
+}
+
+.modal-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 700;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(33, 23, 15, 0.35);
+  margin-bottom: 0.8rem;
+}
+
+.modal-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+@media (max-width: 900px) {
+  .playfield {
+    grid-template-columns: 1fr;
+  }
+}
+
 button {
   border: 0;
   border-radius: 10px;
@@ -64,15 +228,4 @@ button:hover {
 
 .status {
   margin-bottom: 0;
-}
-
-.response {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 360px;
-  overflow: auto;
-  border-radius: 10px;
-  padding: 0.75rem;
-  background: #fff;
 }

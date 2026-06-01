@@ -235,12 +235,16 @@ This document captures the implementation plan for the Wasteland Trader monorepo
 ### Delivered So Far
 - Backend source, tests, and Dockerfile moved under `apps/backend`.
 - Frontend scaffold added under `apps/frontend` with Vite-based local development and nginx release image.
+- Frontend static MVP interaction layout scaffold added (events panel, market column, center action controls, inventory column with capacity, and status panel).
+- Frontend prototype interactions added: selectable market/inventory rows and a quantity modal (`OK`/`Cancel`) for `buy`/`sell`/`dump` action flow scaffolding.
+- Added a dedicated frontend live-reload Docker compose path (`docker-compose.frontend.dev.yml`) for Vite HMR editing without nginx image rebuilds.
 - Root `package.json` converted to a workspace orchestrator with frontend/backend-specific scripts.
 - Added `docker-compose.backend.yml` and `docker-compose.frontend.yml` alongside the combined root `docker-compose.yml`.
 - Backend storage default remains rooted at the repo-level `data/games` path after the move.
 
 ### Remaining
-- Expand the frontend beyond the current session-creation shell into actual game interaction flows.
+- Wire the static frontend MVP layout to live API state (session create/load, events, market, inventory, status).
+- Connect center action controls (`buy`, `sell`, `dump`, `sleep`, `travel`) to backend endpoints with response refresh.
 - Add shared environment documentation/examples for local and release builds.
 - Decide and implement a release pipeline for separate frontend/backend image publishing.
 - Add CI automation for workspace install, backend tests, frontend build, and combined smoke checks.

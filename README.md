@@ -85,6 +85,12 @@ Start frontend only:
 docker compose -f docker-compose.frontend.yml up --build
 ```
 
+Start frontend in live-reload mode (Vite HMR + bind mounts, no container rebuild needed for UI edits):
+
+```bash
+docker compose -f docker-compose.frontend.dev.yml up
+```
+
 Start the full stack:
 
 ```bash
@@ -149,8 +155,16 @@ docker compose -f docker-compose.backend.yml run --rm backend node --test test/h
 ## Frontend status
 
 - `apps/frontend` is a new vanilla Vite app that talks to the backend through `VITE_API_BASE_URL`.
-- The current shell provides a minimal create-game flow and renders the returned session snapshot.
+- The current MVP screen is a static gameplay layout prototype with:
+	- top events panel,
+	- left market list,
+	- center action controls (`buy`, `sell`, `dump`, `sleep`, `travel`),
+	- right inventory list with capacity line,
+	- center status panel with location/caps/debt/health/armour/day/weapon/ammo/rank fields,
+	- row selection in market/inventory and a prototype quantity modal (`OK`/`Cancel`) for `buy`, `sell`, and `dump` actions.
+- This pass is intentionally structure-only and does not yet wire actions or lists to live API state.
 - The release container builds static assets and serves them from nginx.
+- A dedicated Docker live-reload workflow is available via `docker-compose.frontend.dev.yml` to support real-time frontend edits with Vite HMR.
 - The default local browser target is `http://localhost:3000` for the API and `http://localhost:4173` for the frontend.
 
 ## Current API
